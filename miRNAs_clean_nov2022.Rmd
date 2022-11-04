@@ -119,7 +119,6 @@ pheatmap(df, cluster_rows=TRUE, show_rownames=TRUE, show_colnames = TRUE,
 ```
 
 ***
-test
 Session Info
 ```{r session info}
 sessionInfo()
