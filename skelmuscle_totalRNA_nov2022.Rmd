@@ -1,0 +1,89 @@
+---
+title: 'Skeletal Muscle DE Analysis'
+author: "Jessica Silver"
+date: 2022-11-12
+output: html_document
+theme: paper
+  
+---
+
+source: https://github.com/jessicasilver/miRNAs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Set Up Instructions for DE analysis and visualisation 
+
+Prior to running, ensure that `DEseq2` and `pheatpmap` packages are installed. 
+
+```{r setupinstructions}
+suppressPackageStartupMessages({
+library("DESeq2")
+library("pheatmap")
+library(readxl) #only needed if using .xlsx files but not .csv
+})
+
+```
+
+***
+
+#### Differential expression analysis using DEseq2 
+
+```{r DEseq2,echo=T, results='hide', message=FALSE}
+data <- read.csv("2022-11-11_human skm_total RNA_RAW.csv", sep=",", row.names = 1) 
+data[is.na(data)] <-0 #replace NA with 0 
+cts <- as.matrix(data) #convert to matrix
+
+#read in column datafile aka sample information file
+coldata <- read.csv("silver_hskm condition_by group.csv", sep = ",", header = TRUE) 
+
+coldata <- coldata[,c("sampleid","condition")]
+coldata$condition <- factor(coldata$condition)
+coldata$sampleid <- factor(coldata$sampleid)
+
+all(rownames(coldata$sampleid) %in% colnames(cts)) 
+all(rownames(coldata$sampleid) == colnames(cts)) 
+
+#set up deseq2 object
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~ condition)
+
+dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline
+
+keep <- rowSums(counts(dds)) >= 1 #thesolding. first num = read counts, second num = x samples
+dds <- dds[keep,]
+
+dds <- DESeq(dds) #run deseq2
+
+#extract the results for each comparison that you are interested in 
+res <- results(dds, contrast=c("condition","3HPOST","PRE")) #any of 3HPOST, POST or PRE
+res
+
+resOrdered <- res[order(res$pvalue),]
+summary(resOrdered)
+head(resOrdered)
+
+write.csv(as.data.frame(resOrdered), file="yyyy-mm-dd_sampletype_time2,time1_notes.csv")
+
+metadata(dds)[["version"]]
+
+```
+
+#### Pull out DEseq2 normalised read counts
+
+```{r deseq2_norm, echo=T, results='hide'}
+dds <- estimateSizeFactors(dds)
+counts(dds, normalized=TRUE)
+
+normcounts <- counts(dds, normalized=TRUE)
+
+write.csv(as.data.frame(normcounts), file="yyyy-mm-dd_sampletype_DEseq2normcounts.csv")
+```
+
+Session Info
+```{r session info}
+sessionInfo()
+```
+

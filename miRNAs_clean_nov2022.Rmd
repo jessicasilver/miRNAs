@@ -114,11 +114,12 @@ df <- data.frame(rmeansPRE, rmeansPOST_0h, rmeansPOST_3h)
 row.names(df) <- row.names(select2) #`select2` has MIRNA_IDENTIFIERS as row names. need row and col names for heatmap
 
 pheatmap(df, cluster_rows=TRUE, show_rownames=TRUE, show_colnames = TRUE,
-         cluster_cols=T, main = "human mitomiRs >100 in >80%, PRE, POST0h, POST3h_SCALED", angle_col = "45", cellheight=15, cellwidth = 20,
+         cluster_cols=T, main = "human mitomiRs >100 in >80%, PRE, POST0h, POST3h_SCALED", 
+         clustering_distance_rows = "euclidean", clustering_distance_cols = "euclidean", clustering_method = "complete",
+         angle_col = "45", cellheight=15, cellwidth = 20,
          fontsize = 8)
 ```
-test
-***
+
 Session Info
 ```{r session info}
 sessionInfo()
