@@ -52,7 +52,7 @@ dds <- DESeqDataSetFromMatrix(countData = cts,
 
 dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline
 
-keep <- rowSums(counts(dds)) >= 1 #thesolding. first num = read counts, second num = x samples
+keep <- rowSums(counts(dds)) >= 10 #thesolding. first num = read counts, second num = x samples
 dds <- dds[keep,]
 
 dds <- DESeq(dds) #run deseq2

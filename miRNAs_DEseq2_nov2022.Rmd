@@ -54,6 +54,7 @@ dds <- DESeqDataSetFromMatrix(countData = cts,
 dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline. #hsa=PRE #rno=SED
 
 keep <- rowSums(counts(dds) >= 100) >=26   #thesolding. first num = read counts, second num = x samples
+#for DE seq on whole skeletal muscle small miRNAs, threshold as `keep <- rowSums(counts(dds)) >=10 
 dds <- dds[keep,]
 
 dds <- DESeq(dds) #run deseq2
