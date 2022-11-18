@@ -1,0 +1,252 @@
+---
+title: "Human Mitochondria Target Prediction and Over-Representation Analysis"
+author: "Jessica Silver"
+date: "2022-11-18"
+output: html_document
+theme: paper
+  
+---
+
+source: https://github.com/jessicasilver/miRNAs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Set Up Instructions for DE analysis and visualisation 
+
+Prior to running, ensure that `multiMiR` and `readxl` packages are installed. 
+
+```{r setupinstructions}
+suppressPackageStartupMessages({
+library(multiMiR)
+library(readxl) #only needed if using .xlsx files but not .csv
+})
+
+```
+
+***
+
+#### Target Prediction analysis using the multiMiR package
+
+For target prediction analysis, a list of candidate miRNAs was first provided. Provide full miRNA identifier in the mature form, i.e. `hsa-miR-1-3p`. Note that analysis was also replicated for `table = "predicted", predicted.site = "all",` to identify predicted miRNA targets with conserved and nonserved regions in the 3' UTR of target mRNAs.
+
+```{r candidate miRNAs}
+mircandidates <- read_excel("2022-11-11_hsa_mt candidates.xlsx", 
+                            sheet = 1, 
+                            na = c("","NA", "?", "#VALUE!", "Undetermined"),
+                            trim_ws = TRUE)  
+
+Vector <- c(mircandidates$miR) #multimiR requires a vector to run, pull out col names
+
+expval_mt <- get_multimir(org = "hsa", 
+                          mirna = Vector,  
+                          #(can also use miR Base accession number or both)
+                          table = "validated", 
+                          summary = T)
+
+expval_genelist_dupl <- expval_mt@data #pull out data with duplicates
+expval_genelist <- unique(expval_genelist_dupl) #remove duplicates
+write.csv(expval_genelist, file = "yyyy-mm-dd_hsa-miR_genelist_validatedtargets.csv")
+```
+
+Next, the "univerise" list of genes was provided and included all miRNAs detected above thresholds in isolated mitochondria.
+
+```{r background miRNAs}
+mir_ALL <- read_excel("2022-10-20_hsa_full list.xlsx", 
+                      sheet = 1, 
+                      na = c("","NA", "?", "#VALUE!", "Undetermined"),
+                      trim_ws = TRUE)  
+
+Vector_all <- c(mir_ALL$miR) #multimiR requires a vector to run
+
+expval_mt_ALL = get_multimir(org = "hsa", 
+                               mirna = Vector_all, #Make sure it mature form of the miRs 
+                               #(can also use miR Base accession number or both)
+                               table = "validated", #Lots of options here, "validated" "predicted", "disease.drug", "all" 
+                               summary = T)
+
+expval_genelistALL_dupl <- expval_mt_ALL@data #with duplicates
+expval_genelistALL <- unique(expval_genelistALL_dupl) #remove duplicates
+write.csv(expval_genelist, file = "yyyy-mm-dd_hsa-miR_genelistALL_validatedtargets.csv")
+
+```
+
+***
+
+#### ORA 
+
+Prior to running, ensure that `clusterProfiler` and `enrichplot` packages are installed. Install the relevant organism data base `org.Hs.eg.db` for human ORA.  
+
+```{r setupinstructions}
+suppressPackageStartupMessages({
+library(clusterProfiler)
+library(enrichplot) 
+library("org.Hs.eg.db")
+})
+
+```
+
+
+Next, over representation analysis (ORA) using `clusterProfiler v4.4.4` was used for gene target pathway enrichment to predict which biological functions may be affected by the candidate miRNAs. 
+
+Initially, the background gene list used for the ORA analysis comprised the intersect of all gene symbols identified as “experimentally validated” or “predicted” targets of candidate miRNAs, and all genes detected in skeletal muscle from the participants in the current study
+
+```{r skeletal muscle transcripts}
+skmtranscripts <- read.csv("2022-11-11_human skm_total RNA_RAW_ENSEMBL-geneID.csv", sep=",", row.names = 1) #keeps miR identifiers as rownames
+skmgeneID <- skmtranscripts$SYMBOL #this is your list of transcripts in skel muscle in the current study
+skmENSEMBL <- skmtranscripts$ENSEMBL
+
+#find common elements between experimentally validated gene list `target_symbol`
+#`gene`
+expval_geneID <- expval_genelist$target_symbol 
+expval_skmspecific_geneID <- Reduce(intersect, list(skmgeneID,expval_geneID)) 
+#write.csv! 
+
+#`universe`
+expval_ALL_geneID <-expval_genelistALL$target_symbol #gene
+expval_ALL_skmspecific_geneID <- Reduce(intersect, list(skmgeneID,expval_ALL_geneID))
+#write.csv! 
+```
+
+Then, run your ORA
+
+```{r experimentally validated ORA in skel muscle}
+GO_hsa_expval <- enrichGO(gene         = expval_skmspecific_geneID,
+               OrgDb         = org.Hs.eg.db, #change to human
+               keyType       = 'SYMBOL',
+               ont           = "all",
+               pAdjustMethod = "BH",
+               universe = expval_ALL_skmspecific_geneID, #Background Genes
+               qvalueCutoff  = 0.05)
+
+GO_hsa_expval_res <- GO_hsa_expval@result #pull out results
+write.csv(GO_hsa_expval_res, file = "yyyy-mm-dd_hsa-miR_ORA skel muscle_expval.csv")
+```
+
+Next, a secondary ORA analysis included a background gene list comprised of all gene symbols identified as “experimentally validated” or “predicted” targets of candidate miRNAs, without specifically selecting those detected in skeletal muscle tissue in the current study. The tissueEnrich package was used to show the expression profiles of tissue-specific genes in the secondary ORA analysis.
+
+```{r experimentally validated ORA non skeletal muscle specific}
+expval_ENSEMBL <- expval_genelist$target_ensembl
+expvalALl_ENSEMBL <- expval_genelistALL$target_ensembl
+
+GO_hsa_expval2 <- enrichGO(gene         = expval_ENSEMBL,
+                           OrgDb         = org.Hs.eg.db, 
+                           keyType       = 'ENSEMBL',
+                           ont           = "all",
+                           pAdjustMethod = "BH",
+                           universe = expvalALl_ENSEMBL, 
+                           qvalueCutoff  = 0.05)
+#export
+GO_hsa_expval2_res <- GO_hsa_expval2@result
+write.csv(GO_hsa_expval2_res, file = "yyyy-mm-dd_hsa-miR_ORA global_expval2.csv")
+```
+
+#### Visualise
+There a number of different ways to visualise the ORA outputs. Cover all bases by ensuring the following packages are installed. 
+
+```{r setupinstructions visualisation}
+suppressPackageStartupMessages({
+library(ggnewscale)
+library(tidyverse)
+library(TissueEnrich)
+library(tidyr)
+})
+
+```
+
+**Option 1:** simple dot plots. 
+
+```{r ORA dotplots}
+dotplot(GO_hsa_expval)
+dotplot(GO_hsa_expval2)
+```
+
+**Option 2:** tree plots. Example below for "experimentally validated" miRNA tagets found in secondary (non-skeletal muscle specific) analysis. Omitted the skeletal-muscle specific results as only 2 pathways were enriched. 
+
+```{r ORA treeplot}
+edox_expval2 <- pairwise_termsim(GO_hsa_expval2)
+treeplot(edox_expval2, 
+         #label_format = 3, 
+         nCluster =5,
+         nWords =5, #Number of words for Cluster Tags 
+         offset= rel(2), #Moves the dendogram clustering
+         offset_tiplab =rel(2), # Moves GO pathways
+         label_format_cladelab=30,
+         extend=0.3,
+         hexpand =0.3, #Moves position of cluster tags
+         #group_color = c("#FF0000", "#000099", "#336600", "#990099", "#990033"),
+         fontsize=4,
+         geneClusterPanel = "heatMap")+
+  ggplot2::theme(legend.position=c(0.95,#across  
+                                   0.5), #Up/down 
+                 text = element_text(size = 10)) 
+```
+
+**Option 3:** utilise the tissueEnrich package to show the expression profiles of tissue-specific genes in the initial (skeletal muscle specific) ORA analysis. In this example, the bar plot showed that most of the experimentally validated miRNA targets were demonstrated in the cerebral cortex and tests. Further investigation into these miRNA/mRNA interactions shows that these mRNAs are enriched in other tissues such as skeletal and cardiac muscle tissues (among others). 
+
+```{r ORA tissueEnrich}
+genes_ensembl=expval_genelist[,"target_ensembl"]
+genes_2=unique(genes_ensembl) #Remove Duplicates
+genes_3=as.character(genes_2)
+
+gs<-GeneSet(geneIds=genes_3,organism="Homo Sapiens",geneIdType=ENSEMBLIdentifier())
+output<-teEnrichment(inputGenes = gs)
+
+seEnrichmentOutput<-output[[1]]
+enrichmentOutput<-setNames(data.frame(assay(seEnrichmentOutput),row.names = rowData(seEnrichmentOutput)[,1]), colData(seEnrichmentOutput)[,1])
+#can `View(enrichmentOutput)` to see results
+
+ggplot(enrichmentOutput,aes(x=reorder(Tissue,-Tissue.Specific.Genes),y=Tissue.Specific.Genes,label = Tissue.Specific.Genes,fill = Tissue))+
+  geom_bar(stat = 'identity')+
+  labs(x='', y = 'Tissue.Specific.Genes')+
+  theme_bw()+
+  theme(legend.position="none")+
+  theme(plot.title = element_text(hjust = 0.5,size = 20),axis.title = element_text(size=15))+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),panel.grid.major= element_blank(),panel.grid.minor = element_blank())
+
+library(tidyr)
+seExp<-output[[2]][["Skeletal Muscle"]]
+exp<-setNames(data.frame(assay(seExp), row.names = rowData(seExp)[,1]), colData(seExp)[,1])
+exp$Gene<-row.names(exp)
+exp<-exp %>% gather(key = "Tissue", value = "expression", 1:(ncol(exp)-1))
+
+ggplot(exp, aes(Tissue, Gene)) + 
+  geom_tile(aes(fill = expression), colour = "white") + 
+  scale_fill_gradient(low = "white",high = "steelblue")+
+  labs(x='', y = 'log2TPM by ENSEMBL ID')+
+  theme_bw()+
+  guides(fill = guide_legend(title = ""))+
+  theme(legend.position="right", legend.text = element_text(size = 8))+
+  theme(plot.title = element_text(hjust = 0.5,size = 10), axis.title = element_text(size=15))+
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        axis.text.y=element_blank(),
+        axis.title.y = element_text(size = 10),
+        panel.grid.major= element_blank(),panel.grid.minor = element_blank())
+```
+
+
+**Other Notes: ** You can pull out the geneID (ENSEMBL) for a specific pathway using the code chunk below. Note that this does not exported in other results tables. 
+
+```{r multiMiR and ORA extras}
+geneID <- GO_hsa_expval2@result$geneID
+descr <- GO_hsa_expval2@result$Description
+
+test <- data.frame(descr,geneID)
+write.csv(test, file = "yyyy-mm-dd_hsa-miR_ennrichGO_expval2_geneIDdescr.csv")
+```
+
+You can search by individual miRNAs. See code chunk below. All other downstream processing steps (removing duplicates, running `enrichGo` and visualisation) are identical to those detailed for candidate miRNAs above. 
+
+```{r multiMiR by individual miRNA identifier}
+expval_146b3p = get_multimir(org = "hsa", 
+                             mirna = "hsa-miR-146b-3p", 
+                             #(can also use miR Base accession number or both)
+                             table = "validated", 
+                             summary = T)
+```
+
+Session Info
+```{r session info}
+sessionInfo()
+```

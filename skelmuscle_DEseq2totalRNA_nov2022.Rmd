@@ -61,6 +61,10 @@ dds <- DESeq(dds) #run deseq2
 res <- results(dds, contrast=c("condition","3HPOST","PRE")) #any of 3HPOST, POST or PRE
 res
 
+#change alpha level for FDR if required:
+#res05 <- results(dds, alpha=0.05)
+#summary(res05)
+
 resOrdered <- res[order(res$pvalue),]
 summary(resOrdered)
 head(resOrdered)
