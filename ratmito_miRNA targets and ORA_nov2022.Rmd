@@ -1,0 +1,331 @@
+---
+title: "Rat Mitochondria Target Prediction and Over-Representation Analysis"
+author: "Jessica Silver"
+date: "2022-11-18"
+output: html_document
+theme: paper
+  
+---
+
+source: https://github.com/jessicasilver/miRNAs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Set Up Instructions for DE analysis and visualisation 
+
+Prior to running, ensure that `multiMiR` and `readxl` packages are installed. 
+
+```{r setupinstructions}
+suppressPackageStartupMessages({
+library(multiMiR)
+library(readxl) #only needed if using .xlsx files but not .csv
+})
+
+```
+
+***
+
+#### Target Prediction analysis using the multiMiR package
+
+For target prediction analysis, a list of candidate miRNAs was first provided. Provide full miRNA identifier in the mature form, i.e. `hsa-miR-1-3p`. Note that analysis was also replicated for `table = "predicted", predicted.site = "all",` to identify predicted miRNA targets with conserved and
+nonserved regions in the 3' UTR of target mRNAs.
+
+```{r candidate miRNAs}
+mircandidates <- read_excel("2022-11-20_rno-miR candidates.xlsx", 
+                            sheet = 1, 
+                            na = c("","NA", "?", "#VALUE!", "Undetermined"),
+                            trim_ws = TRUE)  
+Vector <- c(mircandidates$miR) #multimiR requires a vector to run
+
+expval_rnocand <- get_multimir(org = "rno", 
+                          mirna = Vector, 
+                          table = "validated", 
+                          summary = T)
+
+
+expval_rnocand_dupl <- expval_rnocand@data #pull out data with duplicates
+expval__rnocand_genelist <- unique(expval_rnocand_dupl) #remove duplicates
+write.csv(expval__rnocand_genelist, file = "2022-11-20_rno_candidate-genelist_expval_targets.csv")
+```
+
+Next, the "univerise" list of genes was provided and included all miRNAs detected above thresholds in isolated mitochondria.
+
+```{r background miRNAs}
+mir_ALL <- read_excel("2022-11-20_rno_full list.xlsx", 
+                      sheet = 1, 
+                      na = c("","NA", "?", "#VALUE!", "Undetermined"),
+                      trim_ws = TRUE)  
+
+Vector_all <- c(mir_ALL$miR) #multimiR requires a vector to run
+
+expval_rnoALL <- get_multimir(org = "rno", 
+                               mirna = Vector_all, 
+                               table = "validated", 
+                               summary = T)
+
+expval_rnoALL_dupl <- expval_rnoALL@data #with duplicates
+expval__rnoALL_genelist <- unique(expval_rnoALL_dupl)
+write.csv(expval__rnoALL_genelist, file = "2022-11-20_rno_ALL-genelist_expval_targets.csv")
+```
+
+***
+
+#### ORA 
+
+Prior to running, ensure that `clusterProfiler` and `enrichplot` packages are installed. Install the relevant organism data base `org.Rn.eg.db` for 
+rat mito ORA.  
+
+```{r setupinstructions}
+suppressPackageStartupMessages({
+library(clusterProfiler)
+library(enrichplot) 
+library("org.Rn.eg.db")
+})
+
+```
+
+
+Next, over representation analysis (ORA) using `clusterProfiler v4.4.4` was used for gene target pathway enrichment to predict which biological 
+functions may be affected by the candidate miRNAs. 
+
+Initially, the background gene list used for the ORA analysis comprised the intersect of all gene symbols identified as “experimentally validated” 
+or “predicted” targets of candidate miRNAs, and all genes detected in skeletal muscle from the participants in the current study
+
+```{r skeletal muscle transcripts}
+rno_skmtranscripts <- read.csv("rno-gastroc_totalRNA_rawfiltered_geneSYMBOL.csv", sep=",") #keeps miR identifiers as rownames
+rno_skmSYMBOL <- rno_skmtranscripts$SYMBOL #this is your list of transcripts in skel muscle in the current study
+
+#find common elements between experimentally validated gene list `target_symbol`
+#`gene`
+expval_rnocand_geneID <- expval__rnocand_genelist$target_symbol
+expval_rnocand_skmspecific_geneID <- Reduce(intersect, list(rno_skmSYMBOL,expval_rnocand_geneID)) 
+#write.csv! 
+
+#`universe`
+expval_rnoALL_geneID <-expval__rnoALL_genelist$target_symbol
+expval_rnoALL_skmspecific_geneID <- Reduce(intersect, list(rno_skmSYMBOL,expval_rnoALL_geneID))
+#write.csv! 
+```
+
+Then, run your ORA
+
+```{r experimentally validated ORA in skel muscle}
+GO_rno_expval_skmspecific <- enrichGO(gene         = expval_rnocand_skmspecific_geneID,
+                          OrgDb         = org.Rn.eg.db, 
+                          keyType       = 'SYMBOL',
+                          ont           = "all",
+                          pAdjustMethod = "BH",
+                          universe = expval_rnoALL_skmspecific_geneID, #Background Genes
+                          qvalueCutoff  = 0.05)
+
+GO_rno_expval_skmspecific_res <- GO_rno_expval_skmspecific@result
+write.csv(GO_rno_expval_skmspecific_res, file = "2022-11-20_rno-miR_gene enrichment_expval-skeletalmuscle.csv")
+```
+
+Next, a secondary ORA analysis included a background gene list comprised of all gene symbols identified as “experimentally validated” or “predicted”
+targets of candidate miRNAs, without specifically selecting those detected in skeletal muscle tissue in the current study. The tissueEnrich package was
+used to show the expression profiles of tissue-specific genes in the secondary ORA analysis.
+
+```{r experimentally validated ORA non skeletal muscle specific}
+expval_rnocand_ENSEMBL <- expval__rnocand_genelist$target_ensembl
+expval_rnoALL_ENSEMBL <- expval__rnoALL_genelist$target_ensembl
+
+GO_rno_expval_global <- enrichGO(gene         = expval_rnocand_ENSEMBL,
+                                 OrgDb         = org.Rn.eg.db, #change to human
+                                 keyType       = 'ENSEMBL',
+                                 ont           = "all",
+                                 pAdjustMethod = "BH",
+                                 universe = expval_rnoALL_ENSEMBL, #Background Genes
+                                 qvalueCutoff  = 0.05)
+#export
+GO_rno_expval_global_res <- GO_rno_expval_global@result
+write.csv(GO_rno_expval_global_res, file = "2022-11-20_rno-miR_gene enrichment_expval-global.csv")
+```
+
+Below are full scripts following the above steps (global and skeletal muscle-specific) for predicted miRNA targets
+
+```{r predicted ALL scripts}
+predALL_rnocand <- get_multimir(org = "rno", 
+                               mirna = Vector, #`genes`
+                               table = "predicted", predicted.site = "ALL", 
+                               summary = T)
+
+predALL_rnocand_dupl <- predALL_rnocand@data #with duplicates
+predALL__rnocand_genelist <- unique(predALL_rnocand_dupl) #remove duplicates
+write.csv(predALL__rnocand_genelist, file = "2022-11-20_rno_candidate-genelist_predALL_targets.csv")
+
+predALL_rnoALL <- get_multimir(org = "rno", 
+                              mirna = Vector_all, #`universe`
+                              table = "predicted", predicted.site = "ALL", 
+                              summary = T)
+predALL_rnoALL_dupl <- predALL_rnoALL@data #with duplicates
+predALL__rnoALL_genelist <- unique(predALL_rnoALL_dupl) #remove duplicates
+write.csv(expval__rnoALL_genelist, file = "2022-11-20_rno_ALL-genelist_predALL_targets.csv")
+
+#ORA - global (not specific for skeletal muscle genes)
+predALL_rnocand_ENSEMBL <- predALL__rnocand_genelist$target_ensembl
+predALL_rnoALL_ENSEMBL <- predALL__rnoALL_genelist$target_ensembl
+
+GO_rno_predALL_global <- enrichGO(gene         = predALL_rnocand_ENSEMBL,
+                                 OrgDb         = org.Rn.eg.db, 
+                                 keyType       = 'ENSEMBL',
+                                 ont           = "all",
+                                 pAdjustMethod = "BH",
+                                 #universe = predALL_rnoALL_ENSEMBL, #Background Genes
+                                 qvalueCutoff  = 0.05)
+GO_rno_predALL_global_res <- GO_rno_predALL_global@result #get results
+write.csv(GO_rno_predALL_global_res, file = "2022-11-20_rno-miR_gene enrichment_predALL-global_nouniverse.csv") #export
+
+#ORA - skeletal muscle specific
+#find common elements between predALL gene list `target_symbol`
+#`gene`
+predALL_rnocand_geneID <- predALL__rnocand_genelist$target_symbol
+predALL_rnocand_skmspecific_geneID <- Reduce(intersect, list(rno_skmSYMBOL,predALL_rnocand_geneID)) 
+#write.csv! 
+
+#`universe`
+predALL_rnoALL_geneID <-predALL__rnoALL_genelist$target_symbol
+predALL_rnoALL_skmspecific_geneID <- Reduce(intersect, list(rno_skmSYMBOL,predALL_rnoALL_geneID))
+#write.csv!
+
+GO_rno_predALL_skmspecific <- enrichGO(gene         = predALL_rnocand_skmspecific_geneID,
+                                      OrgDb         = org.Rn.eg.db, 
+                                      keyType       = 'SYMBOL',
+                                      ont           = "all",
+                                      pAdjustMethod = "BH",
+                                      universe = predALL_rnoALL_skmspecific_geneID, #Background Genes
+                                      qvalueCutoff  = 0.05)
+GO_rno_predALL_skmspecific_res <- GO_rno_predALL_skmspecific@result #get results
+write.csv(GO_rno_expval_skmspecific_res, file = "2022-11-20_rno-miR_gene enrichment_predALL-skeletalmuscle.csv") #export
+```
+
+
+#### Visualise
+There a number of different ways to visualise the ORA outputs. Cover all bases by ensuring the following packages are installed. 
+
+```{r setupinstructions visualisation}
+suppressPackageStartupMessages({
+library(ggnewscale)
+library(tidyverse)
+library(TissueEnrich)
+library(tidyr)
+})
+
+```
+
+**Option 1:** simple dot plots. 
+
+```{r ORA dotplots}
+dotplot(GO_rno_expval_global)
+dotplot(GO_rno_expval_skmspecific)
+dotplot(GO_rno_predALL_global)
+dotplot(GO_rno_predALL_skmspecific)
+```
+
+**Option 2:** tree plots. Example below for "experimentally validated" miRNA targets found in secondary (non-skeletal muscle specific) analysis. 
+
+```{r ORA treeplot}
+#1. experimentally validated - global
+edox_expval_global <- pairwise_termsim(GO_rno_expval_global)
+treeplot(edox_expval_global, 
+         #label_format = 3, 
+         nCluster =5,
+         nWords =5, #Number of words for Cluster Tags 
+         offset= rel(2), #Moves the dendogram clustering
+         offset_tiplab =rel(2), # Moves GO pathways
+         label_format_cladelab=30,
+         extend=0.3,
+         hexpand =0.3, #Moves position of cluster tags
+         #group_color = c("#FF0000", "#000099", "#336600", "#990099", "#990033"),
+         fontsize=4,
+         geneClusterPanel = "heatMap")+
+  ggplot2::theme(legend.position=c(0.95,#across  
+                                   0.5), #Up/down 
+                 text = element_text(size = 10)) 
+
+#2. experimentally validated - skeletal muscle-specific gene list
+edox_expval_skel <- pairwise_termsim(GO_rno_expval_skmspecific)
+treeplot(edox_expval_skel, 
+         #label_format = 3, 
+         nCluster =5,
+         nWords =5, #Number of words for Cluster Tags 
+         offset= rel(2), #Moves the dendogram clustering
+         offset_tiplab =rel(2), # Moves GO pathways
+         label_format_cladelab=30,
+         extend=0.3,
+         hexpand =0.3, #Moves position of cluster tags
+         #group_color = c("#FF0000", "#000099", "#336600", "#990099", "#990033"),
+         fontsize=4,
+         geneClusterPanel = "heatMap")+
+  ggplot2::theme(legend.position=c(0.95,#across  
+                                   0.5), #Up/down 
+                 text = element_text(size = 10)) 
+
+#3. predicted - global
+edox_predALL_global <- pairwise_termsim(GO_rno_predALL_global)
+treeplot(edox_predALL_global, 
+         #label_format = 3, 
+         nCluster =5,
+         nWords =5, #Number of words for Cluster Tags 
+         offset= rel(2), #Moves the dendogram clustering
+         offset_tiplab =rel(2), # Moves GO pathways
+         label_format_cladelab=30,
+         extend=0.3,
+         hexpand =0.3, #Moves position of cluster tags
+         #group_color = c("#FF0000", "#000099", "#336600", "#990099", "#990033"),
+         fontsize=4,
+         geneClusterPanel = "heatMap")+
+  ggplot2::theme(legend.position=c(0.95,#across  
+                                   0.5), #Up/down 
+                 text = element_text(size = 10)) 
+
+#4. predicted - skeletal muscle specific 
+treeplot(edox_predALL_skel, 
+         #label_format = 3, 
+         nCluster =2,
+         nWords =0, #Number of words for Cluster Tags 
+         offset= rel(2), #Moves the dendogram clustering
+         offset_tiplab =rel(2), # Moves GO pathways
+         #label_format_cladelab=30,
+         extend=0.3,
+         hexpand =0.3, #Moves position of cluster tags
+         #group_color = c("#FF0000", "#000099", "#336600", "#990099", "#990033"),
+         fontsize=4,
+         geneClusterPanel = "heatMap")+
+  ggplot2::theme(legend.position=c(0.77,#across  
+                                   0.5), #Up/down 
+                 text = element_text(size = 10))
+
+```
+
+**Other Notes: ** You can pull out the geneID (ENSEMBL) for a specific pathway using the code chunk below. Note that this does not exported in other
+results tables. 
+Note that the example given below is a code chunk from analysis conducted on human mito small RNA seq data. This was not performed on the rat 
+mito samples. 
+
+```{r multiMiR and ORA extras}
+geneID <- GO_hsa_expval2@result$geneID
+descr <- GO_hsa_expval2@result$Description
+
+test <- data.frame(descr,geneID)
+write.csv(test, file = "yyyy-mm-dd_hsa-miR_ennrichGO_expval2_geneIDdescr.csv")
+```
+
+You can search by individual miRNAs. See code chunk below. All other downstream processing steps (removing duplicates, running `enrichGo` and
+visualisation) are identical to those detailed for candidate miRNAs above. 
+Same as above chunk - this example using human data but the process is the same for rat. 
+
+```{r multiMiR by individual miRNA identifier}
+expval_146b3p = get_multimir(org = "hsa", #"rno"
+                             mirna = "hsa-miR-146b-3p", #"rno-miR-1-3p" #etc
+                             #(can also use miR Base accession number or both)
+                             table = "validated", 
+                             summary = T)
+```
+
+Session Info
+```{r session info}
+sessionInfo()
+```

@@ -29,7 +29,8 @@ library(readxl) #only needed if using .xlsx files but not .csv
 
 #### Target Prediction analysis using the multiMiR package
 
-For target prediction analysis, a list of candidate miRNAs was first provided. Provide full miRNA identifier in the mature form, i.e. `hsa-miR-1-3p`. Note that analysis was also replicated for `table = "predicted", predicted.site = "all",` to identify predicted miRNA targets with conserved and nonserved regions in the 3' UTR of target mRNAs.
+For target prediction analysis, a list of candidate miRNAs was first provided. Provide full miRNA identifier in the mature form, i.e. `hsa-miR-1-3p`. Note that analysis was also replicated for `table = "predicted", predicted.site = "all",` to identify predicted miRNA targets with conserved and
+nonserved regions in the 3' UTR of target mRNAs.
 
 ```{r candidate miRNAs}
 mircandidates <- read_excel("2022-11-11_hsa_mt candidates.xlsx", 
@@ -76,7 +77,8 @@ write.csv(expval_genelist, file = "yyyy-mm-dd_hsa-miR_genelistALL_validatedtarge
 
 #### ORA 
 
-Prior to running, ensure that `clusterProfiler` and `enrichplot` packages are installed. Install the relevant organism data base `org.Hs.eg.db` for human ORA.  
+Prior to running, ensure that `clusterProfiler` and `enrichplot` packages are installed. Install the relevant organism data base `org.Hs.eg.db` for 
+human ORA.  
 
 ```{r setupinstructions}
 suppressPackageStartupMessages({
@@ -88,9 +90,11 @@ library("org.Hs.eg.db")
 ```
 
 
-Next, over representation analysis (ORA) using `clusterProfiler v4.4.4` was used for gene target pathway enrichment to predict which biological functions may be affected by the candidate miRNAs. 
+Next, over representation analysis (ORA) using `clusterProfiler v4.4.4` was used for gene target pathway enrichment to predict which biological 
+functions may be affected by the candidate miRNAs. 
 
-Initially, the background gene list used for the ORA analysis comprised the intersect of all gene symbols identified as “experimentally validated” or “predicted” targets of candidate miRNAs, and all genes detected in skeletal muscle from the participants in the current study
+Initially, the background gene list used for the ORA analysis comprised the intersect of all gene symbols identified as “experimentally validated” 
+or “predicted” targets of candidate miRNAs, and all genes detected in skeletal muscle from the participants in the current study
 
 ```{r skeletal muscle transcripts}
 skmtranscripts <- read.csv("2022-11-11_human skm_total RNA_RAW_ENSEMBL-geneID.csv", sep=",", row.names = 1) #keeps miR identifiers as rownames
@@ -124,7 +128,9 @@ GO_hsa_expval_res <- GO_hsa_expval@result #pull out results
 write.csv(GO_hsa_expval_res, file = "yyyy-mm-dd_hsa-miR_ORA skel muscle_expval.csv")
 ```
 
-Next, a secondary ORA analysis included a background gene list comprised of all gene symbols identified as “experimentally validated” or “predicted” targets of candidate miRNAs, without specifically selecting those detected in skeletal muscle tissue in the current study. The tissueEnrich package was used to show the expression profiles of tissue-specific genes in the secondary ORA analysis.
+Next, a secondary ORA analysis included a background gene list comprised of all gene symbols identified as “experimentally validated” or “predicted”
+targets of candidate miRNAs, without specifically selecting those detected in skeletal muscle tissue in the current study. The tissueEnrich package was
+used to show the expression profiles of tissue-specific genes in the secondary ORA analysis.
 
 ```{r experimentally validated ORA non skeletal muscle specific}
 expval_ENSEMBL <- expval_genelist$target_ensembl
@@ -162,7 +168,8 @@ dotplot(GO_hsa_expval)
 dotplot(GO_hsa_expval2)
 ```
 
-**Option 2:** tree plots. Example below for "experimentally validated" miRNA tagets found in secondary (non-skeletal muscle specific) analysis. Omitted the skeletal-muscle specific results as only 2 pathways were enriched. 
+**Option 2:** tree plots. Example below for "experimentally validated" miRNA targets found in secondary (non-skeletal muscle specific) analysis. Omitted
+the skeletal-muscle specific results as only 2 pathways were enriched. 
 
 ```{r ORA treeplot}
 edox_expval2 <- pairwise_termsim(GO_hsa_expval2)
@@ -183,7 +190,10 @@ treeplot(edox_expval2,
                  text = element_text(size = 10)) 
 ```
 
-**Option 3:** utilise the tissueEnrich package to show the expression profiles of tissue-specific genes in the initial (skeletal muscle specific) ORA analysis. In this example, the bar plot showed that most of the experimentally validated miRNA targets were demonstrated in the cerebral cortex and tests. Further investigation into these miRNA/mRNA interactions shows that these mRNAs are enriched in other tissues such as skeletal and cardiac muscle tissues (among others). 
+**Option 3:** utilise the tissueEnrich package to show the expression profiles of tissue-specific genes in the initial (skeletal muscle specific) ORA
+analysis. In this example, the bar plot showed that most of the experimentally validated miRNA targets were demonstrated in the cerebral cortex and
+tests. Further investigation into these miRNA/mRNA interactions shows that these mRNAs are enriched in other tissues such as skeletal and cardiac muscle
+tissues (among others). 
 
 ```{r ORA tissueEnrich}
 genes_ensembl=expval_genelist[,"target_ensembl"]
@@ -226,7 +236,8 @@ ggplot(exp, aes(Tissue, Gene)) +
 ```
 
 
-**Other Notes: ** You can pull out the geneID (ENSEMBL) for a specific pathway using the code chunk below. Note that this does not exported in other results tables. 
+**Other Notes: ** You can pull out the geneID (ENSEMBL) for a specific pathway using the code chunk below. Note that this does not exported in other
+results tables. 
 
 ```{r multiMiR and ORA extras}
 geneID <- GO_hsa_expval2@result$geneID
@@ -236,7 +247,8 @@ test <- data.frame(descr,geneID)
 write.csv(test, file = "yyyy-mm-dd_hsa-miR_ennrichGO_expval2_geneIDdescr.csv")
 ```
 
-You can search by individual miRNAs. See code chunk below. All other downstream processing steps (removing duplicates, running `enrichGo` and visualisation) are identical to those detailed for candidate miRNAs above. 
+You can search by individual miRNAs. See code chunk below. All other downstream processing steps (removing duplicates, running `enrichGo` and
+visualisation) are identical to those detailed for candidate miRNAs above. 
 
 ```{r multiMiR by individual miRNA identifier}
 expval_146b3p = get_multimir(org = "hsa", 

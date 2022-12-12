@@ -1,0 +1,125 @@
+---
+title: 'Mitochondria MiRNA DE, Target Prediction and Pathway Enrichment Analyses (rat mitochondria)'
+author: "Jessica Silver"
+date: 2022-12-13
+output: html_document
+theme: paper
+  
+---
+
+source: https://github.com/jessicasilver/miRNAs
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Set Up Instructions for DE analysis and visualisation 
+
+Prior to running, ensure that `DEseq2` and `pheatpmap` packages are installed. 
+
+```{r setupinstructions}
+suppressPackageStartupMessages({
+library("DESeq2")
+library("pheatmap")
+library(readxl) #only needed if using .xlsx files but not .csv
+})
+
+```
+
+***
+
+#### Differential expression analysis using DEseq2 
+
+```{r DEseq2,echo=T, results='hide', message=FALSE}
+read.csv("silver_rmt raw.csv") #raw read counts as input
+data <- read.csv("silver_rmt raw.csv", sep=",", row.names = 1) #keeps miR identifiers as rownames
+data[is.na(data)] <-0 #replace NA with 0 #now a num not int
+cts <- as.matrix(data) #convert to matrix
+
+#read in column datafile aka sample information file
+coldata <- read.csv("silver_rmt condition.csv", sep = ",", header = TRUE) # do not incl row.names=1
+
+coldata <- coldata[,c("sampleid","condition")]
+coldata$condition <- factor(coldata$condition)
+coldata$sampleid <- factor(coldata$sampleid)
+
+all(rownames(coldata$sampleid) %in% colnames(cts)) #checking that count matrix and coldata are consistent in terms of sample order
+all(rownames(coldata$sampleid) == colnames(cts)) #check these both come back as TRUE
+
+#set up deseq2 object
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~ condition)
+
+dds$condition <- relevel(dds$condition, ref = "SED") #set your baseline; rno=SED
+
+keep <- rowSums(counts(dds) >= 100) >=20   #thesolding. first num = read counts, second num = x samples (in 80% of total n)
+dds <- dds[keep,]
+
+dds <- DESeq(dds) #run deseq2
+
+#extract the results for each comparison that you are interested in 
+res <- results(dds, contrast=c("condition","END","SED")) #only one comparison for rat mito
+res
+
+resOrdered <- res[order(res$pvalue),]
+summary(resOrdered)
+head(resOrdered)
+
+write.csv(as.data.frame(resOrdered), file="yyyy-mm-dd_sampletype_time2,time1_notes.csv")
+
+metadata(dds)[["version"]]
+
+```
+
+#### Pull out DEseq2 normalised read counts
+
+```{r deseq2_norm, echo=T, results='hide'}
+dds <- estimateSizeFactors(dds)
+counts(dds, normalized=TRUE)
+
+normcounts <- counts(dds, normalized=TRUE)
+
+write.csv(as.data.frame(normcounts), file="yyyy-mm-dd_sampletype_DEseq2normcounts.csv")
+```
+
+#### Visualise
+**Option 1:** heatmap by individual ppts
+
+```{r deseq2_visualise, echo=T, results='hide', fig.show='hide'}
+ntd <- normTransform(dds) #gives log2(n + 1)
+select <- order(rowMeans(counts(dds,normalized=TRUE)),
+                decreasing=TRUE)[1:36] #36 miRNAs that met thresholding criteria 
+pheatmap(assay(ntd)[select,], cluster_rows=TRUE, show_rownames=TRUE, show_colnames = TRUE,
+         cluster_cols=FALSE,  main = "Heatmap of human mito-miRs >100 norm >80% in response to acute exercise",
+         fontsize = 8)
+```
+
+**Option 2:** heatmap by group and scaled
+
+```{r deseq_visualise2, echo=T, results='hide', fig.show='hide'}
+select2 <- as.matrix(scale(assay(ntd))) #scale ntd
+
+#pull out samples by group or time-point
+SED <- select2[,14:25]
+END <- select2[,1:13]
+
+#row (i.e. miRNA) means by group or time-point
+rmeansSED <- as.vector(rowMeans(SED))
+rmeansEND <- as.vector(rowMeans(END))
+
+#put this into a data frame
+df <- data.frame(rmeansSED, rmeansEND)
+row.names(df) <- row.names(select2)
+df
+
+pheatmap(df, cluster_rows=TRUE, show_rownames=TRUE, show_colnames = TRUE,
+         cluster_cols=FALSE, main = "rat mitomiRs >100 in >80%, SED vs END_SCALED", angle_col = "45", cellheight=15, cellwidth = 20,
+         fontsize = 8)
+```
+
+Session Info
+```{r session info}
+sessionInfo()
+```
+

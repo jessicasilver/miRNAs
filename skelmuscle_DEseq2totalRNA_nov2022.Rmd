@@ -31,7 +31,7 @@ library(readxl) #only needed if using .xlsx files but not .csv
 #### Differential expression analysis using DEseq2 
 
 ```{r DEseq2,echo=T, results='hide', message=FALSE}
-data <- read.csv("2022-11-11_human skm_total RNA_RAW.csv", sep=",", row.names = 1) 
+data <- read.csv("2022-11-11_human skm_total RNA_RAW.csv", sep=",", row.names = 1) #alternatively, use raw rno-gastroc totalRNA seq file
 data[is.na(data)] <-0 #replace NA with 0 
 cts <- as.matrix(data) #convert to matrix
 
@@ -50,7 +50,7 @@ dds <- DESeqDataSetFromMatrix(countData = cts,
                               colData = coldata,
                               design = ~ condition)
 
-dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline
+dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline. For rno-gastroc, this will be `ref = "SEDENTARY"`
 
 keep <- rowSums(counts(dds)) >= 10 #thesolding. first num = read counts, second num = x samples
 dds <- dds[keep,]
@@ -58,7 +58,7 @@ dds <- dds[keep,]
 dds <- DESeq(dds) #run deseq2
 
 #extract the results for each comparison that you are interested in 
-res <- results(dds, contrast=c("condition","3HPOST","PRE")) #any of 3HPOST, POST or PRE
+res <- results(dds, contrast=c("condition","3HPOST","PRE")) #any of 3HPOST, POST or PRE for hsa. For rno, only option will be `"TRAINED", "SEDENTARY"`
 res
 
 #change alpha level for FDR if required:
