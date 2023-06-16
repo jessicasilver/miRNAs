@@ -1,0 +1,246 @@
+---
+title: 'Skeletal Muscle DE Analysis'
+author: "Jessica Silver (additional analysis by Megan Soria)"
+date: 2023-06-16
+output:
+  html_document:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  html_notebook:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+source: https://github.com/jessicasilver/miRNAs
+
+## Summary and background information
+The data used in this analysis is from an exercise intervention study in 12 human participants conducted by **[name]** on **[year]**. Muscle biopsies were taken at 3 time points for each participant: pre-exercise, post-exercise, and 3 hours post-exercise <br> <br>
+A whole muscle and a mitochondrial fraction is extracted from each biopsy. This analysis focuses on the differential expression of the whole muscle transcriptome.  
+
+## Load and install packages
+The following packages are required for the following analysis and visualisation. The code below will automatically install and load packages from CRAN. Packages from Bioconductor can be installed by un-commenting (removing the # before the line or selecting the code block and pressing ctrl+shift+c) and running  the code block for the Bioconductor packages. Sometimes these installations will throw an error and specific packages might need to be installed manually.
+
+```{r echo = T, results = 'hide'}
+suppressPackageStartupMessages({c(
+  # packages from CRAN
+  if(!require("prettydoc")) install.packages("prettydoc"), library(prettydoc),
+  if(!require("readxl")) install.packages("readxl"), library(readxl),
+  if(!require("dplyr")) install.packages("dplyr"), library(dplyr),
+  if(!require("RColorBrewer")) install.packages("RColorBrewer"), library(RColorBrewer),
+  # packages from Bioconductor
+  # run the installation code when needed
+  # if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
+  #   BiocManager::install(c("DESeq2", "ComplexHeatmap", "EnhancedVolcano", "org.Hs.eg.db")),
+  library(DESeq2),
+  library(ComplexHeatmap),
+  library(EnhancedVolcano),
+  library(org.Hs.eg.db),
+  library(biomaRt),
+  library(cowplot)
+  )})
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("DESeq2")
+  
+# load self-authored functions 
+source("functions.R")
+```
+
+***
+
+## Differential expression analysis
+The following differential expression analysis is conducted using the DESeq2 package
+
+```{r DEseq2,echo=T, results='hide', message=FALSE}
+data <- read.csv("data/2022-11-11_human skm_total RNA_RAW.csv", sep=",", row.names = 1) #alternatively, use raw rno-gastroc totalRNA seq file
+
+data[is.na(data)] <-0 #replace NA with 0  
+cts <- as.matrix(data) #convert to matrix
+
+#read in column datafile aka sample information file
+coldata <- read.csv("data/silver_hskm condition_by group.csv", sep = ",", header = TRUE) 
+
+coldata <- coldata[,c("sampleid","condition")]
+coldata$condition <- factor(coldata$condition)
+coldata$sampleid <- factor(coldata$sampleid)
+
+all(rownames(coldata$sampleid) %in% colnames(cts)) 
+all(rownames(coldata$sampleid) == colnames(cts)) 
+
+#set up deseq2 object
+dds <- DESeqDataSetFromMatrix(countData = cts,
+                              colData = coldata,
+                              design = ~ condition)
+
+dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline. For rno-gastroc, this will be `ref = "SEDENTARY"`
+
+keep <- rowSums(counts(dds)) >= 10 #thesolding. first num = read counts, second num = x samples
+dds <- dds[keep,]
+
+dds <- DESeq(dds) #run deseq2
+
+#extract the results for each comparison that you are interested in 
+res <- results(dds, contrast=c("condition","3HPOST","PRE")) #any of 3HPOST, POST or PRE for hsa. For rno, only option will be `"TRAINED", "SEDENTARY"`
+res
+
+#change alpha level for FDR if required:
+#res05 <- results(dds, alpha=0.05)
+#summary(res05)
+
+resOrdered <- res[order(res$pvalue),]
+summary(resOrdered)
+head(resOrdered)
+
+write.csv(as.data.frame(resOrdered), file="yyyy-mm-dd_sampletype_time2,time1_notes.csv")
+
+metadata(dds)[["version"]]
+
+```
+
+#### Pull out DEseq2 normalised read counts
+
+```{r deseq2_norm, echo=T, results='hide'}
+dds <- estimateSizeFactors(dds)
+counts(dds, normalized=TRUE)
+
+normcounts <- counts(dds, normalized=TRUE)
+
+write.csv(as.data.frame(normcounts), file="yyyy-mm-dd_sampletype_DEseq2normcounts.csv")
+```
+
+### Extract all possible contrasts 
+
+```{r}
+# resNames_list() function sourced from function.R
+ddsResults <- resNames_list(dds)
+
+# extract 3HRPOST vs POST contrast
+hr3POST_vs_POST <- results(dds, contrast=c("condition","3HPOST","POST")) %>%
+  .[order(.$log2FoldChange, decreasing = TRUE),] %>%
+      as.data.frame(.)
+condition_3HPOST_vs_POST <- list("condition_3HPOST_vs_POST" = hr3POST_vs_POST)
+
+# store all contrasts in a list 
+ddsResults_list <- append(ddsResults, condition_3HPOST_vs_POST)
+names(ddsResults_list)
+
+# threshFilter() function sourced from function.R
+ddsSignif_contrasts <- threshFilter(ddsResults_list, padjust = 0.05, L2FC = 1)
+
+```
+
+## Visualisations
+
+### Heatmap
+This heatmap shows the changes in gene expression across all time points using condition = POST vs PRE. The top 30 up-regulated and down-regulated genes are filtered according to pvalue < 0.05 and |log2 fold change| > 1
+
+```{r}
+# add gene names from ENSEMBL Ids
+data_genename <- read.csv("data/2022-11-11_human skm_total RNA_RAW_ENSEMBL-geneID.csv", sep=",", row.names = 1)
+data_genename <- data_genename[,1:2] 
+
+signif_genes <- left_join(ddsSignif_contrasts$condition_3HPOST_vs_PRE %>%
+                            mutate(ENSEMBL = rownames(ddsSignif_contrasts$condition_3HPOST_vs_PRE)),
+                          data_genename, by = 'ENSEMBL') 
+                                  
+rownames(signif_genes) <- signif_genes$ENSEMBL
+signif_genes <- signif_genes %>% dplyr::select(-c(ENSEMBL))
+
+
+
+# apply variance stabilising transformation to the DESeq data
+# this normalisation is required for calculations involving distances (heatmaps, clustering, etc.)
+vsd <- vst(dds, blind=F)
+
+mat <- assay(vsd)[rownames(signif_genes),]
+
+# get he z scores for the matrix
+mat_z <- t(apply(mat, 1, scale))
+colnames(mat_z) <- colnames(mat)
+
+head(mat_z)
+
+# select the top and bottom genes and store log2foldchange and baseMean values
+numkeep <- 30
+rowskeep <- c(seq(1:numkeep), seq((nrow(mat_z)-numkeep), nrow(mat_z)))
+
+l2_val <- as.matrix(signif_genes[rowskeep,]$log2FoldChange)
+colnames(l2_val) <- "logFC"
+
+bMean <- as.matrix(signif_genes[rowskeep,]$baseMean)
+colnames(bMean) <- "AveExpr"
+
+# colours for values between b/w/r for min/max of l2 values
+col_logFC <- colorRamp2(c(min(l2_val), 0, max(l2_val)), c("blue", "white", "red"))
+
+# colours for 0% quantile, and 75% quantile of mean values --- 0, 25, 50, 75, 100
+col_AveExpr <- colorRamp2(c(quantile(bMean)[1], quantile(bMean)[4]), c("white", "red"))
+
+# set a pre, post, and 3hour post groupings
+sampling_group <- rep(c("Pre", "Post", "3hrPost"), times = c(10, 12, 11))
+sampling_group_col = c("Pre" = 5, "Post" = 4, "3hrPost" = 6)
+
+dend1 = cluster_within_group(mat_z, sampling_group)
+```
+
+Create the heatmaps
+```{r fig.width=14.22, fig.height=15}
+ha <- HeatmapAnnotation(summary = anno_summary(gp = gpar(fill = 2),
+                                               height = unit(2, "cm")))
+
+h1 <- Heatmap(mat_z[rowskeep,], cluster_rows = F, # cluster only columns to compare samples
+            column_labels = colnames(mat_z), row_labels = signif_genes$SYMBOL[rowskeep], name="Z-score",
+            cluster_columns = dend1, column_split = 3,
+            top_annotation = HeatmapAnnotation(Sampling = sampling_group, col = list(Sampling = sampling_group_col)))
+
+h2 <- Heatmap(l2_val, row_labels = signif_genes$SYMBOL[rowskeep], 
+            cluster_rows = F, name="logFC", col = col_logFC,
+            #cell_fun = function(j, i, x, y, w, h, col) { # add text to each grid
+              #grid.text(round(l2_val[i, j],2), x, y)}
+            )
+
+h3 <- Heatmap(bMean, row_labels = signif_genes$SYMBOL[rowskeep], 
+             cluster_rows = F, name = "AveExpr", col=col_AveExpr)
+
+h<-h1+h2+h3
+# pdf(file = "stage_model_Female.pdf",
+#     width = 14.22,
+#     height = 8.79)
+# h
+# dev.off()
+h
+```
+### Volcano plots
+```{r fig.width=14.22, fig.height=15}
+plots <- list()
+for (i in 1:length(ddsResults_list)) {
+  
+  if (i <= 3) {
+    p <- EnhancedVolcano(ddsResults_list[[i]], x="log2FoldChange", y="padj", lab = NA, 
+                pCutoff = 1e-4, FCcutoff = 1, title = "", subtitle = names(ddsResults_list[i]), gridlines.major = FALSE, gridlines.minor = FALSE, 
+                axisLabSize = 14, titleLabSize = 0, subtitleLabSize = 16, captionLabSize = 14, legendLabSize = 14, legendIconSize = 4,
+                col = c("grey30", "royalblue", "forestgreen", "red2"))
+  } else {
+    p <- EnhancedVolcano(ddsResults_list[[i]], x="log2FoldChange", y="padj", lab = NA, 
+                pCutoff = 1e-4, FCcutoff = 1, title = "", subtitle = names(ddsResults_list[i]), gridlines.major = FALSE, gridlines.minor = FALSE, 
+                axisLabSize = 14, titleLabSize = 0, subtitleLabSize = 16, captionLabSize = 14, legendPosition = "none",
+                col = c("grey30", "royalblue", "forestgreen", "red2"))
+  }
+  
+  
+  plots[[i]] <- p
+}
+plot_grid(plotlist = plots, ncol = 2, labels = LETTERS[1:length(plots)], label_size = 18)
+```
+
+Session Info
+```{r session info}
+sessionInfo()
+```
+
