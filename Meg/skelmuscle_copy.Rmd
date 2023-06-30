@@ -32,6 +32,7 @@ suppressPackageStartupMessages({c(
   if(!require("readxl")) install.packages("readxl"), library(readxl),
   if(!require("dplyr")) install.packages("dplyr"), library(dplyr),
   if(!require("RColorBrewer")) install.packages("RColorBrewer"), library(RColorBrewer),
+  if(!require("circlize")) install.packages("circlize"), library(circlize),
   # packages from Bioconductor
   # run the installation code when needed
   # if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
@@ -39,14 +40,13 @@ suppressPackageStartupMessages({c(
   library(DESeq2),
   library(ComplexHeatmap),
   library(EnhancedVolcano),
-  library(org.Hs.eg.db),
-  library(biomaRt),
-  library(cowplot)
+  library(cowplot),
+  library(PCAtools)
   )})
 
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
-BiocManager::install("DESeq2")
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("DESeq2")
   
 # load self-authored functions 
 source("functions.R")
@@ -97,18 +97,16 @@ resOrdered <- res[order(res$pvalue),]
 summary(resOrdered)
 head(resOrdered)
 
-write.csv(as.data.frame(resOrdered), file="yyyy-mm-dd_sampletype_time2,time1_notes.csv")
+#write.csv(as.data.frame(resOrdered), file="yyyy-mm-dd_sampletype_time2,time1_notes.csv")
 
-metadata(dds)[["version"]]
+#metadata(dds)[["version"]]
 
 ```
 
 #### Pull out DEseq2 normalised read counts
 
-```{r deseq2_norm, echo=T, results='hide'}
+```{r deseq2_norm, results='hide'}
 dds <- estimateSizeFactors(dds)
-counts(dds, normalized=TRUE)
-
 normcounts <- counts(dds, normalized=TRUE)
 
 write.csv(as.data.frame(normcounts), file="yyyy-mm-dd_sampletype_DEseq2normcounts.csv")
@@ -137,9 +135,7 @@ ddsSignif_contrasts <- threshFilter(ddsResults_list, padjust = 0.05, L2FC = 1)
 
 ## Visualisations
 
-### Heatmap
-This heatmap shows the changes in gene expression across all time points using condition = POST vs PRE. The top 30 up-regulated and down-regulated genes are filtered according to pvalue < 0.05 and |log2 fold change| > 1
-
+Prepare data and add gene names
 ```{r}
 # add gene names from ENSEMBL Ids
 data_genename <- read.csv("data/2022-11-11_human skm_total RNA_RAW_ENSEMBL-geneID.csv", sep=",", row.names = 1)
@@ -151,13 +147,24 @@ signif_genes <- left_join(ddsSignif_contrasts$condition_3HPOST_vs_PRE %>%
                                   
 rownames(signif_genes) <- signif_genes$ENSEMBL
 signif_genes <- signif_genes %>% dplyr::select(-c(ENSEMBL))
+```
 
-
-
+Apply variance stabilising transformation to the DESeq data
+```{r}
 # apply variance stabilising transformation to the DESeq data
 # this normalisation is required for calculations involving distances (heatmaps, clustering, etc.)
 vsd <- vst(dds, blind=F)
 
+#plotPCA(vsd, intgroup=c("condition"))
+pca <- plot_pca(vsd, PC_x = 1, PC_y = 2, color_by = "condition", point_rel_size = 2.5) 
+p <- pca(assay(vsd))
+
+screeplot(p, axisLabSize = 18, titleLabSize = 22) 
+```
+
+### Heatmap
+This heatmap shows the changes in gene expression across all time points using condition = POST vs PRE. The top 30 up-regulated and down-regulated genes are filtered according to pvalue < 0.05 and |log2 fold change| > 1
+```{r}
 mat <- assay(vsd)[rownames(signif_genes),]
 
 # get he z scores for the matrix
@@ -167,8 +174,8 @@ colnames(mat_z) <- colnames(mat)
 head(mat_z)
 
 # select the top and bottom genes and store log2foldchange and baseMean values
-numkeep <- 30
-rowskeep <- c(seq(1:numkeep), seq((nrow(mat_z)-numkeep), nrow(mat_z)))
+numkeep <- 70
+rowskeep <- c(seq(1:numkeep))
 
 l2_val <- as.matrix(signif_genes[rowskeep,]$log2FoldChange)
 colnames(l2_val) <- "logFC"
@@ -194,6 +201,10 @@ Create the heatmaps
 ha <- HeatmapAnnotation(summary = anno_summary(gp = gpar(fill = 2),
                                                height = unit(2, "cm")))
 
+h1_noGrouping <- Heatmap(mat_z[rowskeep,], cluster_rows = F, # cluster only columns to compare samples
+            column_labels = colnames(mat_z), name="Z-score",
+            cluster_columns = T)
+
 h1 <- Heatmap(mat_z[rowskeep,], cluster_rows = F, # cluster only columns to compare samples
             column_labels = colnames(mat_z), row_labels = signif_genes$SYMBOL[rowskeep], name="Z-score",
             cluster_columns = dend1, column_split = 3,
@@ -208,13 +219,13 @@ h2 <- Heatmap(l2_val, row_labels = signif_genes$SYMBOL[rowskeep],
 h3 <- Heatmap(bMean, row_labels = signif_genes$SYMBOL[rowskeep], 
              cluster_rows = F, name = "AveExpr", col=col_AveExpr)
 
-h<-h1+h2+h3
-# pdf(file = "stage_model_Female.pdf",
-#     width = 14.22,
-#     height = 8.79)
-# h
-# dev.off()
-h
+hA<-h1+h2+h3
+hA
+
+hB <- h1_noGrouping+h2+h3
+hB
+
+
 ```
 ### Volcano plots
 ```{r fig.width=14.22, fig.height=15}

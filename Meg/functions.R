@@ -8,7 +8,7 @@ resNames_list <- function(dds){
   for (i in 1:length(resName)) {
     
     signif_genes <- as.data.frame(results(dds, name = resName[[i]]))
-    signif_genes <- signif_genes[order(signif_genes$log2FoldChange, decreasing = TRUE),] %>%
+    signif_genes <- signif_genes[order(signif_genes$padj, decreasing = FALSE),] %>%
       as.data.frame(.)
     
     resNames_list[[paste0((resName)[[i]])]] <- signif_genes
@@ -28,7 +28,7 @@ threshFilter <- function(dfList, padjust, L2FC){
     signif_genes <- dfList[[i]] %>% filter(dfList[[i]]$padj < padjust) %>%
       filter(abs(.$log2FoldChange) > L2FC)
     
-    signif_genes <- signif_genes[order(signif_genes$log2FoldChange, decreasing = TRUE),] %>%
+    signif_genes <- signif_genes[order(signif_genes$padj, decreasing = F),] %>%
       as.data.frame(.)
     
     filt[[paste0(names(dfList)[i])]] <- signif_genes
