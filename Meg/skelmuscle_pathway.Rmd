@@ -1,0 +1,194 @@
+---
+title: "Pathway Analysis for Whole Skeletal Muscle"
+author: "MSoria"
+date: '2023-05-31'
+output:
+  html_document:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  html_notebook:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+# Purpose
+
+This markdown file aims to perform a pathway analysis on the differentially expressed genes of an exercise intervention study.
+
+### Install and load prerequisite R-packages
+
+```{r load library, message=FALSE, warning=FALSE, include=FALSE, paged.print=TRUE}
+# Installation of some useful packages
+suppressPackageStartupMessages({c(
+  if(!isTRUE(require("prettydoc"))){install.packages("prettydoc")},
+  if(!isTRUE(require("readxl"))){install.packages("readxl")},
+  library(prettydoc),
+  library(readxl), # reads excel files
+  library(here), # finds files based on current working directory
+  library(DESeq2),
+  library(biomaRt),
+  library(tidyverse),
+  library(dplyr),
+  library(fgsea),
+  library(msigdbr)
+  )})
+
+```
+
+# Source:
+http://www.bioconductor.org/packages/devel/bioc/vignettes/rWikiPathways/inst/doc/Pathway-Analysis.html
+
+# Load Differentially Expressed Genes
+```{r}
+ddsResults_list <- readRDS("rds/ddsResults_list.rds")
+
+#select contrast
+preVs3hrPost <- ddsResults_list[[1]] 
+postVsPre <- ddsResults_list[[2]]
+postVs3hrPost <- ddsResults_list[[3]]
+
+```
+
+### Convert ENSEMBL IDs
+```{r}
+# add gene names from ENSEMBL Ids
+data_genename <- read.csv("data/2022-11-11_human skm_total RNA_RAW_ENSEMBL-geneID.csv", 
+                          sep=",", row.names = 1)
+data_genename <- data_genename[,1:2] 
+
+# preVs3hrPost
+signif_preVs3hrPost <- left_join(preVs3hrPost %>%
+    mutate(ENSEMBL = rownames(preVs3hrPost)),
+                          data_genename, by = 'ENSEMBL') 
+                                  
+rownames(signif_preVs3hrPost) <- signif_preVs3hrPost$ENSEMBL
+signif_preVs3hrPost <- signif_preVs3hrPost %>% dplyr::select(-c(ENSEMBL))
+
+# preVs3hrPost
+signif_postVsPre <- left_join(postVsPre %>%
+    mutate(ENSEMBL = rownames(postVsPre)),
+                          data_genename, by = 'ENSEMBL') 
+                                  
+rownames(signif_postVsPre) <- signif_postVsPre$ENSEMBL
+signif_postVsPre <- signif_postVsPre %>% dplyr::select(-c(ENSEMBL))
+
+# postVs3hrPost
+signif_postVs3hrPost <- left_join(postVs3hrPost %>%
+    mutate(ENSEMBL = rownames(postVs3hrPost)),
+                          data_genename, by = 'ENSEMBL') 
+                                  
+rownames(signif_postVs3hrPost) <- signif_postVs3hrPost$ENSEMBL
+signif_postVs3hrPost <- signif_postVs3hrPost %>% dplyr::select(-c(ENSEMBL))
+```
+
+# Get gene set data 
+Using the **msigdbr library** from the [Broad Institute's Molecular Signatures Database](https://www.gsea-msigdb.org/gsea/msigdb/collections.jsp).
+
+```{r}
+#Hallmark
+H <- as.data.frame(msigdbr(species = "Homo sapiens", 
+                           category = "H")) 
+#Gene ontology
+GO <- as.data.frame(msigdbr(species = "Homo sapiens", 
+                           category = "C5"))
+#Canonical pathways: including KEGG, Reactome
+CP <- as.data.frame(msigdbr(species = "Homo sapiens", 
+                           category = "C2"))
+
+head(H)
+```
+
+# Define Significant genes
+```{r}
+signif_preVs3hrPost_stat <- signif_preVs3hrPost %>% 
+  dplyr::select(SYMBOL, stat) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(SYMBOL) %>% 
+  summarize(stat=mean(stat))
+
+ranks_preVs3hrPost <- deframe(signif_preVs3hrPost_stat)
+
+signif_postVsPre_stat <- signif_postVsPre %>% 
+  dplyr::select(SYMBOL, stat) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(SYMBOL) %>% 
+  summarize(stat=mean(stat))
+
+ranks_postVsPre <- deframe(signif_postVsPre_stat)
+
+signif_postVs3hrPost_stat <- signif_postVs3hrPost %>% 
+  dplyr::select(SYMBOL, stat) %>% 
+  na.omit() %>% 
+  distinct() %>% 
+  group_by(SYMBOL) %>% 
+  summarize(stat=mean(stat))
+
+ranks_postVs3hrPost <- deframe(signif_postVs3hrPost_stat)
+```
+
+# Run GSEA
+```{r}
+H_list = split(x = H$gene_symbol, f = H$gs_name)
+
+# preVs3hrPost
+fgsea_preVs3hrPost <- fgsea(pathways=H_list, stats=ranks_preVs3hrPost)
+fgsea_preVs3hrPost <- fgsea_preVs3hrPost %>%
+  as_tibble() %>%
+  arrange(desc(NES)) %>%
+  mutate(pathway = gsub("HALLMARK_","", pathway),
+         pathway = gsub("_"," ", pathway))
+
+# postVsPre
+fgsea_postVsPre <- fgsea(pathways=H_list, stats=ranks_postVsPre)
+fgsea_postVsPre <- fgsea_postVsPre %>%
+  as_tibble() %>%
+  arrange(desc(NES)) %>%
+  mutate(pathway = gsub("HALLMARK_","", pathway),
+         pathway = gsub("_"," ", pathway))
+
+# postVs3hrPost
+fgsea_postVs3hrPost <- fgsea(pathways=H_list, stats=ranks_postVs3hrPost)
+fgsea_postVs3hrPost <- fgsea_postVs3hrPost %>%
+  as_tibble() %>%
+  arrange(desc(NES)) %>%
+  mutate(pathway = gsub("HALLMARK_","", pathway),
+         pathway = gsub("_"," ", pathway))
+```
+
+# Plot enriched pathways
+```{r fig.width=14.22, fig.height=15}
+My_Theme = theme(title =element_text(size=22, face='bold'))
+
+# preVs3hrPost
+ggplot(fgsea_preVs3hrPost, aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill=padj<0.05)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="Hallmark pathways NES from GSEA: 3hr vs Pre") + 
+  theme_minimal(base_size = 18) + My_Theme
+
+# postVsPre
+ggplot(fgsea_postVsPre, aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill=padj<0.05)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="Hallmark pathways NES from GSEA: Post vs Pre") + 
+  theme_minimal(base_size = 18) + My_Theme
+
+# postVs3hrPost
+ggplot(fgsea_postVs3hrPost, aes(reorder(pathway, NES), NES)) +
+  geom_col(aes(fill=padj<0.05)) +
+  coord_flip() +
+  labs(x="Pathway", y="Normalized Enrichment Score",
+       title="Hallmark pathways NES from GSEA: 3hr vs Post") + 
+  theme_minimal(base_size = 18) + My_Theme
+
+```
+
