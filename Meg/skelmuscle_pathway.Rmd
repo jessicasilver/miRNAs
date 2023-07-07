@@ -38,6 +38,9 @@ suppressPackageStartupMessages({c(
   library(msigdbr)
   )})
 
+# load self-authored functions 
+source("functions.R")
+
 ```
 
 # Source:
@@ -63,8 +66,9 @@ data_genename <- data_genename[,1:2]
 
 # preVs3hrPost
 signif_preVs3hrPost <- left_join(preVs3hrPost %>%
-    mutate(ENSEMBL = rownames(preVs3hrPost)),
-                          data_genename, by = 'ENSEMBL') 
+    mutate(ENSEMBL = rownames(preVs3hrPost)), 
+                          data_genename, by = 'ENSEMBL')
+# signif_preVs3hrPost[signif_preVs3hrPost =="" ] <- NA
                                   
 rownames(signif_preVs3hrPost) <- signif_preVs3hrPost$ENSEMBL
 signif_preVs3hrPost <- signif_preVs3hrPost %>% dplyr::select(-c(ENSEMBL))
@@ -73,6 +77,7 @@ signif_preVs3hrPost <- signif_preVs3hrPost %>% dplyr::select(-c(ENSEMBL))
 signif_postVsPre <- left_join(postVsPre %>%
     mutate(ENSEMBL = rownames(postVsPre)),
                           data_genename, by = 'ENSEMBL') 
+# signif_postVsPre[signif_postVsPre =="" ] <- NA
                                   
 rownames(signif_postVsPre) <- signif_postVsPre$ENSEMBL
 signif_postVsPre <- signif_postVsPre %>% dplyr::select(-c(ENSEMBL))
@@ -80,7 +85,8 @@ signif_postVsPre <- signif_postVsPre %>% dplyr::select(-c(ENSEMBL))
 # postVs3hrPost
 signif_postVs3hrPost <- left_join(postVs3hrPost %>%
     mutate(ENSEMBL = rownames(postVs3hrPost)),
-                          data_genename, by = 'ENSEMBL') 
+                          data_genename, by = 'ENSEMBL')
+# signif_postVs3hrPost[signif_postVs3hrPost =="" ] <- NA
                                   
 rownames(signif_postVs3hrPost) <- signif_postVs3hrPost$ENSEMBL
 signif_postVs3hrPost <- signif_postVs3hrPost %>% dplyr::select(-c(ENSEMBL))
@@ -90,21 +96,40 @@ signif_postVs3hrPost <- signif_postVs3hrPost %>% dplyr::select(-c(ENSEMBL))
 Using the **msigdbr library** from the [Broad Institute's Molecular Signatures Database](https://www.gsea-msigdb.org/gsea/msigdb/collections.jsp).
 
 ```{r}
-#Hallmark
+# Hallmark
 H <- as.data.frame(msigdbr(species = "Homo sapiens", 
                            category = "H")) 
-#Gene ontology
+H_list = split(x = H$gene_symbol, f = H$gs_name)
+
+# Gene ontology
 GO <- as.data.frame(msigdbr(species = "Homo sapiens", 
                            category = "C5"))
-#Canonical pathways: including KEGG, Reactome
+GO_list = split(x = GO$gene_symbol, f = GO$gs_name)
+
+# GO-Biological pathways
+GO_BP <- msigdbr(species = "Homo sapiens", 
+                 category = "C5", 
+                 subcategory = "BP")
+GO_BP_list = split(x = GO_BP$gene_symbol, f = GO_BP$gs_name)
+
+# Canonical pathways: including KEGG, Reactome
 CP <- as.data.frame(msigdbr(species = "Homo sapiens", 
                            category = "C2"))
+CP_list = split(x = CP$gene_symbol, f = CP$gs_name)
+
+# KEGG
+KEGG <- msigdbr(species = "Homo sapiens", 
+                category = "C2", 
+                subcategory = "KEGG")
+
+KEGG_list = split(x = KEGG$gene_symbol, f = KEGG$gs_name)
 
 head(H)
 ```
 
 # Define Significant genes
 ```{r}
+
 signif_preVs3hrPost_stat <- signif_preVs3hrPost %>% 
   dplyr::select(SYMBOL, stat) %>% 
   na.omit() %>% 
@@ -135,34 +160,65 @@ ranks_postVs3hrPost <- deframe(signif_postVs3hrPost_stat)
 
 # Run GSEA
 ```{r}
-H_list = split(x = H$gene_symbol, f = H$gs_name)
+
+# set ScoreType ("std" if neg and pos values present; "pos" if only pos; "neg" if only neg)
+  score_test <- function(gsea_data_vec){
+      if(min(gsea_data_vec) < 0 & max(gsea_data_vec) > 0){
+     type <- "std"
+    } else if(min(gsea_data_vec) < 0 & max(gsea_data_vec) < 0){
+      type <- "neg"
+    } else{
+      type <- "pos"
+    }
+    return(type)
+  }
 
 # preVs3hrPost
-fgsea_preVs3hrPost <- fgsea(pathways=H_list, stats=ranks_preVs3hrPost)
+ScoreType <- score_test(ranks_preVs3hrPost)
+fgsea_preVs3hrPost <- fgsea(pathways=H_list, 
+                            stats=ranks_preVs3hrPost,
+                            scoreType = ScoreType, 
+                            minSize = 15, 
+                            nPermSimple = 10000)
+
 fgsea_preVs3hrPost <- fgsea_preVs3hrPost %>%
+  # filter(padj <= 0.05) %>% 
   as_tibble() %>%
   arrange(desc(NES)) %>%
   mutate(pathway = gsub("HALLMARK_","", pathway),
          pathway = gsub("_"," ", pathway))
 
 # postVsPre
-fgsea_postVsPre <- fgsea(pathways=H_list, stats=ranks_postVsPre)
+ScoreType <- score_test(ranks_postVsPre)
+fgsea_postVsPre <- fgsea(pathways=H_list, 
+                         stats=ranks_postVsPre,
+                         scoreType = ScoreType, 
+                         minSize = 15, 
+                         nPermSimple = 10000)
+
 fgsea_postVsPre <- fgsea_postVsPre %>%
+  # filter(padj <= 0.05) %>% 
   as_tibble() %>%
   arrange(desc(NES)) %>%
   mutate(pathway = gsub("HALLMARK_","", pathway),
          pathway = gsub("_"," ", pathway))
 
 # postVs3hrPost
-fgsea_postVs3hrPost <- fgsea(pathways=H_list, stats=ranks_postVs3hrPost)
+ScoreType <- score_test(ranks_postVs3hrPost)
+fgsea_postVs3hrPost <- fgsea(pathways=H_list, 
+                             stats=ranks_postVs3hrPost,
+                             scoreType = ScoreType, 
+                             minSize = 15, 
+                             nPermSimple = 10000)
 fgsea_postVs3hrPost <- fgsea_postVs3hrPost %>%
+  # filter(padj <= 0.05) %>% 
   as_tibble() %>%
   arrange(desc(NES)) %>%
   mutate(pathway = gsub("HALLMARK_","", pathway),
          pathway = gsub("_"," ", pathway))
 ```
 
-# Plot enriched pathways
+# Bar Plot enriched pathways
 ```{r fig.width=14.22, fig.height=15}
 My_Theme = theme(title =element_text(size=22, face='bold'))
 
@@ -171,7 +227,7 @@ ggplot(fgsea_preVs3hrPost, aes(reorder(pathway, NES), NES)) +
   geom_col(aes(fill=padj<0.05)) +
   coord_flip() +
   labs(x="Pathway", y="Normalized Enrichment Score",
-       title="Hallmark pathways NES from GSEA: 3hr vs Pre") + 
+       title="GO Biological Pathways from GSEA: 3hr vs Pre") + 
   theme_minimal(base_size = 18) + My_Theme
 
 # postVsPre
@@ -192,3 +248,55 @@ ggplot(fgsea_postVs3hrPost, aes(reorder(pathway, NES), NES)) +
 
 ```
 
+# GSEA function
+```{r fig.width=10, fig.height=5}
+gene_list = ranks_preVs3hrPost
+gene_list = sort(gene_list, decreasing = TRUE)
+gene_list = gene_list[!duplicated(names(gene_list))]
+
+pathway = GO_BP_list
+pval = 0.05
+
+condition_name = "3hr Post vs Pre-exercise"
+
+res = GSEA(gene_list, pathway, pval, condition_name)
+
+res$Plot1
+res$Plot2
+
+```
+
+```{r fig.width=10, fig.height=5}
+gene_list = ranks_postVsPre
+gene_list = sort(gene_list, decreasing = TRUE)
+gene_list = gene_list[!duplicated(names(gene_list))]
+
+pathway = GO_BP_list
+pval = 0.05
+
+condition_name = "Post vs Pre-exercise"
+
+res_postVsPre = GSEA(gene_list, pathway, pval, condition_name)
+
+res_postVsPre$Plot1
+res_postVsPre$Plot2
+
+```
+
+
+```{r fig.width=10, fig.height=5}
+gene_list = ranks_postVs3hrPost
+gene_list = sort(gene_list, decreasing = TRUE)
+gene_list = gene_list[!duplicated(names(gene_list))]
+
+pathway = GO_BP_list
+pval = 0.05
+
+condition_name = "3hr Post vs Post-exercise"
+
+res_postVs3hrPost = GSEA(gene_list, pathway, pval, condition_name)
+
+res_postVs3hrPost$Plot1
+res_postVs3hrPost$Plot2
+
+```

@@ -35,3 +35,80 @@ threshFilter <- function(dfList, padjust, L2FC){
   }
   return(filt)
 }
+
+# GSEA function 
+# source: https://bioinformaticsbreakdown.com/how-to-gsea/
+GSEA = function(gene_list, pathway, pval, condition_name) {
+  set.seed(54321)
+  library(dplyr)
+  library(fgsea)
+  
+  if ( any( duplicated(names(gene_list)) )  ) {
+    warning("Duplicates in gene names")
+    gene_list = gene_list[!duplicated(names(gene_list))]
+  }
+  if  ( !all( order(gene_list, decreasing = TRUE) == 1:length(gene_list)) ){
+    warning("Gene list not sorted")
+    gene_list = sort(gene_list, decreasing = TRUE)
+  }
+  
+  fgRes <- fgsea::fgsea(pathways = pathway,
+                        stats = gene_list,
+                        minSize=15, ## minimum gene set size
+                        nPermSimple=10000) %>% 
+    as.data.frame() %>% 
+    dplyr::filter(padj < !!pval) %>% 
+    arrange(desc(NES)) %>%
+    mutate(pathway = gsub("GOBP_","", pathway),
+           pathway = gsub("_"," ", pathway))
+  
+  message(paste("Number of signficant gene sets =", nrow(fgRes)))
+  
+  # message("Collapsing Pathways -----")
+  # concise_pathways = collapsePathways(data.table::as.data.table(fgRes),
+  #                                     pathways = pathway,
+  #                                     stats = gene_list)
+  # 
+  # fgRes = fgRes[fgRes$pathway %in% concise_pathways$mainPathways, ]
+  # message(paste("Number of gene sets after collapsing =", nrow(fgRes)))
+  
+  fgRes$Enrichment = ifelse(fgRes$NES > 0, "Up-regulated", "Down-regulated")
+  filtRes = rbind(head(fgRes, n = 10),
+                  tail(fgRes, n = 10 ))
+  
+  total_up = sum(fgRes$Enrichment == "Up-regulated")
+  total_down = sum(fgRes$Enrichment == "Down-regulated")
+  path_info = paste0("Top 10 (Total pathways: Up=", total_up,", Down=",    total_down, ")")
+  
+  fig_name = paste0(condition_name,":")
+  
+  colors = setNames(c("firebrick2", "dodgerblue2"),
+                   c("Up-regulated", "Down-regulated"))
+  
+  theme_set(theme_classic())
+  #My_Theme = theme(title=element_text(size=15, face='bold'))
+  
+  g1 = ggplot(filtRes, aes(reorder(pathway, NES), NES)) +
+    geom_point( aes(fill = Enrichment, size = size), shape=21) +
+    scale_fill_manual(values = colors ) +
+    scale_size_continuous(range = c(2,10)) +
+    geom_hline(yintercept = 0) +
+    coord_flip() +
+    labs(x="Pathway", y=paste0("Normalized Enrichment Score (NES): ", path_info),
+         title = fig_name,
+         subtitle = "GO Biological Pathways NES from GSEA") + 
+    theme(plot.title=element_text(hjust=0.5),
+          plot.subtitle=element_text(hjust=0.5))
+  
+  g2 = ggplot(filtRes, aes(reorder(pathway, NES), NES)) +
+    geom_col(aes(fill=Enrichment)) +
+    coord_flip() +
+    labs(x="Pathway", y=paste0("Normalized Enrichment Score (NES): ", path_info),
+         title = fig_name,
+         subtitle = "GO Biological Pathways NES from GSEA") + 
+    theme(plot.title=element_text(hjust=0.5),
+          plot.subtitle=element_text(hjust=0.5))
+  
+  output = list("Results" = fgRes, "Plot1" = g1, "Plot2" = g2)
+  return(output)
+}
