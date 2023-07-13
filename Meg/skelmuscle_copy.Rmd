@@ -33,6 +33,8 @@ suppressPackageStartupMessages({c(
   if(!require("dplyr")) install.packages("dplyr"), library(dplyr),
   if(!require("RColorBrewer")) install.packages("RColorBrewer"), library(RColorBrewer),
   if(!require("circlize")) install.packages("circlize"), library(circlize),
+  library(ggplot2),
+  library(RNAseqQC),
   # packages from Bioconductor
   # run the installation code when needed
   # if (!require("BiocManager", quietly = TRUE)) install.packages("BiocManager")
@@ -127,6 +129,8 @@ condition_3HPOST_vs_POST <- list("condition_3HPOST_vs_POST" = hr3POST_vs_POST)
 # store all contrasts in a list 
 ddsResults_list <- append(ddsResults, condition_3HPOST_vs_POST)
 names(ddsResults_list)
+
+#saveRDS(ddsResults_list, "rds/ddsResults_list.rds")
 
 # threshFilter() function sourced from function.R
 ddsSignif_contrasts <- threshFilter(ddsResults_list, padjust = 0.05, L2FC = 1)

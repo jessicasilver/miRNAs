@@ -34,8 +34,10 @@ suppressPackageStartupMessages({c(
   library(biomaRt),
   library(tidyverse),
   library(dplyr),
-  library(fgsea),
-  library(msigdbr)
+  library(msigdbr),
+  library(clusterProfiler),
+  library(enrichplot),
+  library(pathview)
   )})
 
 # load self-authored functions 
@@ -50,253 +52,161 @@ http://www.bioconductor.org/packages/devel/bioc/vignettes/rWikiPathways/inst/doc
 ```{r}
 ddsResults_list <- readRDS("rds/ddsResults_list.rds")
 
-#select contrast
-preVs3hrPost <- ddsResults_list[[1]] 
-postVsPre <- ddsResults_list[[2]]
-postVs3hrPost <- ddsResults_list[[3]]
+# put contrasts into separate DBs and remove ensembl id versions 
+preVs3hrPost <- ddsResults_list[[1]] %>% 
+  rownames_to_column(var = "ENSEMBL") %>% 
+  mutate(ENSEMBL = gsub("[.].", "", .$ENSEMBL))
+
+preVpost <- ddsResults_list[[2]] %>% 
+  rownames_to_column(var = "ENSEMBL") %>% 
+  mutate(ENSEMBL = gsub("[.].", "", .$ENSEMBL))
+
+postVs3hrPost <- ddsResults_list[[3]] %>% 
+  rownames_to_column(var = "ENSEMBL") %>% 
+  mutate(ENSEMBL = gsub("[.].", "", .$ENSEMBL))
+
+# create clusterProfiler inputs for ORA and GSEA
+preV3h_input <- cProfilr_input(preVs3hrPost)
+preVpost_input <- cProfilr_input(preVpost)
+postV3hP_input <- cProfilr_input(postVs3hrPost)
 
 ```
 
-### Convert ENSEMBL IDs
-```{r}
-# add gene names from ENSEMBL Ids
-data_genename <- read.csv("data/2022-11-11_human skm_total RNA_RAW_ENSEMBL-geneID.csv", 
-                          sep=",", row.names = 1)
-data_genename <- data_genename[,1:2] 
-
-# preVs3hrPost
-signif_preVs3hrPost <- left_join(preVs3hrPost %>%
-    mutate(ENSEMBL = rownames(preVs3hrPost)), 
-                          data_genename, by = 'ENSEMBL')
-# signif_preVs3hrPost[signif_preVs3hrPost =="" ] <- NA
-                                  
-rownames(signif_preVs3hrPost) <- signif_preVs3hrPost$ENSEMBL
-signif_preVs3hrPost <- signif_preVs3hrPost %>% dplyr::select(-c(ENSEMBL))
-
-# preVs3hrPost
-signif_postVsPre <- left_join(postVsPre %>%
-    mutate(ENSEMBL = rownames(postVsPre)),
-                          data_genename, by = 'ENSEMBL') 
-# signif_postVsPre[signif_postVsPre =="" ] <- NA
-                                  
-rownames(signif_postVsPre) <- signif_postVsPre$ENSEMBL
-signif_postVsPre <- signif_postVsPre %>% dplyr::select(-c(ENSEMBL))
-
-# postVs3hrPost
-signif_postVs3hrPost <- left_join(postVs3hrPost %>%
-    mutate(ENSEMBL = rownames(postVs3hrPost)),
-                          data_genename, by = 'ENSEMBL')
-# signif_postVs3hrPost[signif_postVs3hrPost =="" ] <- NA
-                                  
-rownames(signif_postVs3hrPost) <- signif_postVs3hrPost$ENSEMBL
-signif_postVs3hrPost <- signif_postVs3hrPost %>% dplyr::select(-c(ENSEMBL))
-```
 
 # Get gene set data 
 Using the **msigdbr library** from the [Broad Institute's Molecular Signatures Database](https://www.gsea-msigdb.org/gsea/msigdb/collections.jsp).
 
-```{r}
-# Hallmark
-H <- as.data.frame(msigdbr(species = "Homo sapiens", 
-                           category = "H")) 
-H_list = split(x = H$gene_symbol, f = H$gs_name)
+```{r echo=TRUE}
+# get a list of all genes from the original DESeq db to add to the gene set data
+# clusterProfiler has a tendency to "ignore" ids that does not have an annotation in the gene sets
 
-# Gene ontology
-GO <- as.data.frame(msigdbr(species = "Homo sapiens", 
-                           category = "C5"))
-GO_list = split(x = GO$gene_symbol, f = GO$gs_name)
+# adds genes without annotation to the geneset
+bg <- postVs3hrPost$ENSEMBL
+bg <- unique(sapply(strsplit(bg," "),"[[",1))
+bgdf <- data.frame("background",bg)
+colnames(bgdf) <- c("gs_name","ensembl_gene")
 
 # GO-Biological pathways
 GO_BP <- msigdbr(species = "Homo sapiens", 
-                 category = "C5", 
-                 subcategory = "BP")
-GO_BP_list = split(x = GO_BP$gene_symbol, f = GO_BP$gs_name)
+                 category = "C5", subcategory = "BP") %>% 
+  dplyr::distinct(gs_name, ensembl_gene) %>% as.data.frame()
 
-# Canonical pathways: including KEGG, Reactome
-CP <- as.data.frame(msigdbr(species = "Homo sapiens", 
-                           category = "C2"))
-CP_list = split(x = CP$gene_symbol, f = CP$gs_name)
+x <- dim(GO_BP)
 
-# KEGG
-KEGG <- msigdbr(species = "Homo sapiens", 
-                category = "C2", 
-                subcategory = "KEGG")
+GO_BP <- rbind(GO_BP,bgdf[!bgdf$ensembl_gene %in% GO_BP$ensembl_gene,]) %>% 
+  mutate(gs_name = gsub("GOBP_", "", .$gs_name)) %>% 
+  mutate(gs_name = gsub("_", " ", .$gs_name)) %>% 
+           as.data.frame()
 
-KEGG_list = split(x = KEGG$gene_symbol, f = KEGG$gs_name)
-
-head(H)
+cat("Before adding background genes: ", x, "\n",
+    "After adding background genes: ", dim(GO_BP), "\n",
+    "Total added: ", dim(GO_BP) - x)
 ```
 
-# Define Significant genes
-```{r}
+# Gene Set Enrichment analysis 
+## Pre vs 3hr post 
+```{r fig.height=9, fig.width=12, warning=FALSE}
+preV3h_gseGO <- clusterProfiler::GSEA(geneList = preV3h_input$gene_list, 
+                     TERM2GENE = GO_BP,
+                     pvalueCutoff = 0.05,
+                     minGSSize = 10, 
+                     maxGSSize = 800,
+                     eps = 0,
+                     by = "fgsea",
+                     verbose = FALSE)
 
-signif_preVs3hrPost_stat <- signif_preVs3hrPost %>% 
-  dplyr::select(SYMBOL, stat) %>% 
-  na.omit() %>% 
-  distinct() %>% 
-  group_by(SYMBOL) %>% 
-  summarize(stat=mean(stat))
+# plot results
 
-ranks_preVs3hrPost <- deframe(signif_preVs3hrPost_stat)
+dotplot(preV3h_gseGO, showCategory=10, split=".sign",
+        label_format = 40,
+        font.size = 10,) +
+        facet_grid(.~.sign) + 
+        labs(title = "Gene Set Enrichment Analysis of DE Genes (3hr post vs Pre exercise)",
+             subtitle = "FDR < 0.05, -1 > logfold2Change > 1 ") +
+        theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
+              plot.subtitle=element_text(hjust=0.5, size = 15, face = "bold")) 
 
-signif_postVsPre_stat <- signif_postVsPre %>% 
-  dplyr::select(SYMBOL, stat) %>% 
-  na.omit() %>% 
-  distinct() %>% 
-  group_by(SYMBOL) %>% 
-  summarize(stat=mean(stat))
+emapplot(pairwise_termsim(preV3h_gseGO), showCategory = 15, layout = "circle") +
+  ggtitle("Enrichment map plot of DE Genes (3hr post vs Pre exercise)") +
+  theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"))
 
-ranks_postVsPre <- deframe(signif_postVsPre_stat)
 
-signif_postVs3hrPost_stat <- signif_postVs3hrPost %>% 
-  dplyr::select(SYMBOL, stat) %>% 
-  na.omit() %>% 
-  distinct() %>% 
-  group_by(SYMBOL) %>% 
-  summarize(stat=mean(stat))
-
-ranks_postVs3hrPost <- deframe(signif_postVs3hrPost_stat)
+ridgeplot(preV3h_gseGO, showCategory = 15) + 
+  labs(title = "Density plots of fold change frequency values per gene within each set",
+       subtitle = "(3hr post vs Pre exercise)",
+    x = "Enrichment Distribution") +
+  theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
+              plot.subtitle=element_text(hjust=0.5, size = 20, face = "bold"))
 ```
+## Pre vs Post 
+```{r fig.height=9, fig.width=12, warning=FALSE}
+preVpost_gseGO <- clusterProfiler::GSEA(geneList = preVpost_input$gene_list, 
+                     TERM2GENE = GO_BP,
+                     pvalueCutoff = 0.05,
+                     minGSSize = 10, 
+                     maxGSSize = 800,
+                     eps = 0,
+                     by = "fgsea",
+                     verbose = FALSE)
 
-# Run GSEA
-```{r}
+# plot results
+dotplot(preVpost_gseGO, showCategory=10, split=".sign",
+        label_format = 40,
+        font.size = 10,) +
+        facet_grid(.~.sign) + 
+        labs(title = "Gene Set Enrichment Analysis of DE Genes (Post vs Pre exercise)",
+             subtitle = "FDR < 0.05, -1 > logfold2Change > 1 ") +
+        theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
+              plot.subtitle=element_text(hjust=0.5, size = 15, face = "bold")) 
 
-# set ScoreType ("std" if neg and pos values present; "pos" if only pos; "neg" if only neg)
-  score_test <- function(gsea_data_vec){
-      if(min(gsea_data_vec) < 0 & max(gsea_data_vec) > 0){
-     type <- "std"
-    } else if(min(gsea_data_vec) < 0 & max(gsea_data_vec) < 0){
-      type <- "neg"
-    } else{
-      type <- "pos"
-    }
-    return(type)
-  }
+emapplot(pairwise_termsim(preVpost_gseGO), showCategory = 15, layout = "circle") +
+  ggtitle("Enrichment map plot of DE Genes (Post vs Pre exercise)") +
+  theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"))
 
-# preVs3hrPost
-ScoreType <- score_test(ranks_preVs3hrPost)
-fgsea_preVs3hrPost <- fgsea(pathways=H_list, 
-                            stats=ranks_preVs3hrPost,
-                            scoreType = ScoreType, 
-                            minSize = 15, 
-                            nPermSimple = 10000)
 
-fgsea_preVs3hrPost <- fgsea_preVs3hrPost %>%
-  # filter(padj <= 0.05) %>% 
-  as_tibble() %>%
-  arrange(desc(NES)) %>%
-  mutate(pathway = gsub("HALLMARK_","", pathway),
-         pathway = gsub("_"," ", pathway))
-
-# postVsPre
-ScoreType <- score_test(ranks_postVsPre)
-fgsea_postVsPre <- fgsea(pathways=H_list, 
-                         stats=ranks_postVsPre,
-                         scoreType = ScoreType, 
-                         minSize = 15, 
-                         nPermSimple = 10000)
-
-fgsea_postVsPre <- fgsea_postVsPre %>%
-  # filter(padj <= 0.05) %>% 
-  as_tibble() %>%
-  arrange(desc(NES)) %>%
-  mutate(pathway = gsub("HALLMARK_","", pathway),
-         pathway = gsub("_"," ", pathway))
-
-# postVs3hrPost
-ScoreType <- score_test(ranks_postVs3hrPost)
-fgsea_postVs3hrPost <- fgsea(pathways=H_list, 
-                             stats=ranks_postVs3hrPost,
-                             scoreType = ScoreType, 
-                             minSize = 15, 
-                             nPermSimple = 10000)
-fgsea_postVs3hrPost <- fgsea_postVs3hrPost %>%
-  # filter(padj <= 0.05) %>% 
-  as_tibble() %>%
-  arrange(desc(NES)) %>%
-  mutate(pathway = gsub("HALLMARK_","", pathway),
-         pathway = gsub("_"," ", pathway))
-```
-
-# Bar Plot enriched pathways
-```{r fig.width=14.22, fig.height=15}
-My_Theme = theme(title =element_text(size=22, face='bold'))
-
-# preVs3hrPost
-ggplot(fgsea_preVs3hrPost, aes(reorder(pathway, NES), NES)) +
-  geom_col(aes(fill=padj<0.05)) +
-  coord_flip() +
-  labs(x="Pathway", y="Normalized Enrichment Score",
-       title="GO Biological Pathways from GSEA: 3hr vs Pre") + 
-  theme_minimal(base_size = 18) + My_Theme
-
-# postVsPre
-ggplot(fgsea_postVsPre, aes(reorder(pathway, NES), NES)) +
-  geom_col(aes(fill=padj<0.05)) +
-  coord_flip() +
-  labs(x="Pathway", y="Normalized Enrichment Score",
-       title="Hallmark pathways NES from GSEA: Post vs Pre") + 
-  theme_minimal(base_size = 18) + My_Theme
-
-# postVs3hrPost
-ggplot(fgsea_postVs3hrPost, aes(reorder(pathway, NES), NES)) +
-  geom_col(aes(fill=padj<0.05)) +
-  coord_flip() +
-  labs(x="Pathway", y="Normalized Enrichment Score",
-       title="Hallmark pathways NES from GSEA: 3hr vs Post") + 
-  theme_minimal(base_size = 18) + My_Theme
+ridgeplot(preVpost_gseGO, showCategory = 15) + 
+  labs(title = "Density plots of fold change frequency values per gene within each set",
+       subtitle = "(Post vs Pre exercise)",
+    x = "Enrichment Distribution") +
+  theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
+              plot.subtitle=element_text(hjust=0.5, size = 20, face = "bold"))
 
 ```
 
-# GSEA function
-```{r fig.width=10, fig.height=5}
-gene_list = ranks_preVs3hrPost
-gene_list = sort(gene_list, decreasing = TRUE)
-gene_list = gene_list[!duplicated(names(gene_list))]
+# Compare gene lists to each other
 
-pathway = GO_BP_list
-pval = 0.05
+```{r fig.width=18, warning=FALSE}
+# put all gene lists for each DE contrast in one list
+compare_list <- list(preVsPost = preVpost_input$gene_list,
+                     preVs3hPost = preV3h_input$gene_list)
 
-condition_name = "3hr Post vs Pre-exercise"
+ck <- compareCluster(geneClusters=compare_list, fun = "GSEA", 
+                     TERM2GENE = GO_BP,
+                     pvalueCutoff = 0.05,
+                     minGSSize = 10, 
+                     maxGSSize = 800,
+                     eps = 0,
+                     by = "fgsea",
+                     verbose = FALSE)
 
-res = GSEA(gene_list, pathway, pval, condition_name)
 
-res$Plot1
-res$Plot2
-
+dotplot(ck, showCategory=7, split=".sign",
+        label_format = 40,
+        font.size = 10,) +
+        facet_grid(.~.sign) + 
+        labs(title = "Gene Set Enrichment Analysis comparison for PreVsPost and PreVs3hPost DE Genes",
+             subtitle = "Top 7 Genes: FDR < 0.05, -1 > logfold2Change > 1 ") +
+        theme(plot.title=element_text(hjust=0.5, size = 25, face = "bold"),
+              plot.subtitle=element_text(hjust=0.5, size = 20, face = "bold"))
 ```
 
-```{r fig.width=10, fig.height=5}
-gene_list = ranks_postVsPre
-gene_list = sort(gene_list, decreasing = TRUE)
-gene_list = gene_list[!duplicated(names(gene_list))]
-
-pathway = GO_BP_list
-pval = 0.05
-
-condition_name = "Post vs Pre-exercise"
-
-res_postVsPre = GSEA(gene_list, pathway, pval, condition_name)
-
-res_postVsPre$Plot1
-res_postVsPre$Plot2
-
+### Plot Gene-Concept Network
+The cnetplot() depicts the linkages of genes and biological concepts (e.g. GO terms) as a network.
+```{r fig.width=18, warning=FALSE}
+cnetplot(ck, node_label="category", cex_label_category = 2) + 
+  labs(title = "Gene-Concept Network for PreVsPost and PreVs3hPost DE Genes") +
+  theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"))
 ```
 
 
-```{r fig.width=10, fig.height=5}
-gene_list = ranks_postVs3hrPost
-gene_list = sort(gene_list, decreasing = TRUE)
-gene_list = gene_list[!duplicated(names(gene_list))]
 
-pathway = GO_BP_list
-pval = 0.05
-
-condition_name = "3hr Post vs Post-exercise"
-
-res_postVs3hrPost = GSEA(gene_list, pathway, pval, condition_name)
-
-res_postVs3hrPost$Plot1
-res_postVs3hrPost$Plot2
-
-```

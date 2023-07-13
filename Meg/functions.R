@@ -36,6 +36,72 @@ threshFilter <- function(dfList, padjust, L2FC){
   return(filt)
 }
 
+# creates a clusterProfiler-ready input for ORA or GSEA from DESeq
+# NOTE: this assumes that the dataframe has a column named ENSEMBL containing
+#       ensembl ids
+#df = dataframe; DESeq2 results
+#gene_name = name of the column that contains the gene names 
+#padj = numeric; cutoff FDR or padj value (default = 0.05)
+#lf2c = numeric; cutoff log2FoldChange (default = 2)
+
+# preVs3hrPost_stat <- preVs3hrPost %>% 
+#   dplyr::select(ENSEMBL, stat) %>% 
+#   na.omit() %>% 
+#   distinct() %>% 
+#   group_by(ENSEMBL) %>% 
+#   summarize(stat=mean(stat))
+# 
+# ranks_preVs3hrPost <- deframe(signif_preVs3hrPost_stat)
+
+cProfilr_input <- function(df){
+  input <- list()
+  
+  # we want the log2 fold change 
+  original_gene_list <- df$log2FoldChange
+  
+  # name the vector
+  names(original_gene_list) <- df$ENSEMBL
+  
+  # omit any NA values 
+  gene_list<-na.omit(original_gene_list)
+  
+  # sort the list in decreasing order (required for clusterProfiler)
+  gene_list = sort(gene_list, decreasing = TRUE)
+  
+  # Exctract significant results (padj < 0.05)
+  sig_genes_df = subset(df, padj < 0.05)
+  
+  # From significant results, we want to filter on log2fold change
+  genes <- sig_genes_df$log2FoldChange
+  
+  # Name the vector
+  names(genes) <- sig_genes_df$ENSEMBL
+  
+  # omit NA values
+  genes <- na.omit(genes)
+  
+  # filter on min log2fold change (log2FoldChange > 2)
+  genes <- names(genes)[abs(genes) > 1]
+  
+  input[["signif_genes"]] <- genes
+  input[["gene_list"]] <- gene_list
+  
+  return(input)
+}
+
+
+# set ScoreType for fgsea ("std" if neg and pos values present; "pos" if only pos; "neg" if only neg)
+score_test <- function(gsea_data_vec){
+  if(min(gsea_data_vec) < 0 & max(gsea_data_vec) > 0){
+    type <- "std"
+  } else if(min(gsea_data_vec) < 0 & max(gsea_data_vec) < 0){
+    type <- "neg"
+  } else{
+    type <- "pos"
+  }
+  return(type)
+}
+
 # GSEA function 
 # source: https://bioinformaticsbreakdown.com/how-to-gsea/
 GSEA = function(gene_list, pathway, pval, condition_name) {
@@ -111,4 +177,98 @@ GSEA = function(gene_list, pathway, pval, condition_name) {
   
   output = list("Results" = fgRes, "Plot1" = g1, "Plot2" = g2)
   return(output)
+}
+
+# calculates the z-score of normalised DESeq data
+# norm_data = normalised DESeq data usually using vst()
+# signif_genes_filt = dataframe; prefiltered genes according to thresholds
+z_score <- function(norm_data, signif_genes_filt){
+  count_mat <- assay(norm_data)[rownames(signif_genes_filt),]
+  
+  count_mat_z <- t(apply(count_mat, 1, scale))
+  colnames(count_mat_z) <- colnames(count_mat)
+  
+  return(count_mat_z)
+}
+
+# creates a complex heatmap
+# numkeep = integer; number of rows (genes) to select for the heatmap
+# signif_genes_filt = dataframe; prefiltered genes according to thresholds 
+# count_mat_z = matrix; z-score of the normalised DESeq data
+hmap <- function(numkeep, signif_genes_filt, count_mat_z, hmap_name){
+  
+  numkeep <- numkeep
+  rowskeep <- c(seq(1:numkeep))
+  
+  # log2foldchange values
+  l2_val <- as.matrix(signif_genes_filt[rowskeep,]$log2FoldChange)
+  colnames(l2_val) <- "logFC"
+  
+  # colours for values between b/w/r for min/max of l2 values
+  col_logFC <- colorRamp2(c(min(l2_val), 0, max(l2_val)), c("blue", "white", "red"))
+  
+  
+  # plot heatmaps
+  ha <- HeatmapAnnotation(summary = anno_summary(gp = gpar(fill = 2), 
+                                                 height = unit(2, "cm")))
+  
+  h1 <- Heatmap(count_mat_z[rowskeep,], column_title = hmap_name,
+                column_title_gp = gpar(fontsize = 23),
+                cluster_rows = F, # cluster only columns to compare samples
+                column_labels = colnames(count_mat_z), name="Z-score",
+                cluster_columns = T)
+  
+  h2 <- Heatmap(l2_val, row_labels = rownames(signif_genes_filt)[rowskeep], 
+                cluster_rows = F, name="logFC", top_annotation = ha, col = col_logFC,
+                #cell_fun = function(j, i, x, y, w, h, col) { # add text to each grid
+                #grid.text(round(l2_val[i, j],2), x, y)}
+  )
+  
+  h<-h1+h2
+  
+  return(h)
+}
+
+
+# creates a complex heatmap with sample grouping
+# numkeep = integer; number of rows (genes) to select for the heatmap
+# signif_genes_filt = dataframe; prefiltered genes according to thresholds 
+# count_mat_z = matrix; z-score of the normalised DESeq data
+hmap_colGrouped <- function(numkeep, signif_genes_filt, count_mat_z, hmap_name){
+  
+  # create groupings
+  sampling_group <- rep(c("F", "M", "TR1", "TR2", "TR3", "TR4"), times = c(3, 5, 7, 9, 9, 9))
+  sampling_group_col = c("F" = 5, "M" = 4, "TR1" = 6, "TR2" = 3, "TR3" = 2, "TR4" = 8)
+  
+  dend1 = cluster_within_group(count_mat_z, sampling_group)
+  
+  numkeep <- numkeep
+  rowskeep <- c(seq(1:numkeep))
+  
+  # log2foldchange values
+  l2_val <- as.matrix(signif_genes_filt[rowskeep,]$log2FoldChange)
+  colnames(l2_val) <- "logFC"
+  
+  # colours for values between b/w/r for min/max of l2 values
+  col_logFC <- colorRamp2(c(min(l2_val), 0, max(l2_val)), c("blue", "white", "red"))
+  
+  
+  # plot heatmaps
+  
+  h1 <- Heatmap(count_mat_z[rowskeep,], column_title = hmap_name,
+                column_title_gp = gpar(fontsize = 23),
+                cluster_rows = F, # cluster only columns to compare samples
+                column_labels = colnames(count_mat_z), name="Z-score",
+                cluster_columns = dend1, column_split = 6,
+                top_annotation = HeatmapAnnotation(Sampling = sampling_group, col = list(Sampling = sampling_group_col)))
+  
+  h2 <- Heatmap(l2_val, row_labels = rownames(signif_genes_filt)[rowskeep], 
+                cluster_rows = F, name="logFC", col = col_logFC,
+                #cell_fun = function(j, i, x, y, w, h, col) { # add text to each grid
+                #grid.text(round(l2_val[i, j],2), x, y)}
+  )
+  
+  h<-h1+h2
+  
+  return(h)
 }
