@@ -183,7 +183,7 @@ GSEA = function(gene_list, pathway, pval, condition_name) {
 # norm_data = normalised DESeq data usually using vst()
 # signif_genes_filt = dataframe; prefiltered genes according to thresholds
 z_score <- function(norm_data, signif_genes_filt){
-  count_mat <- assay(norm_data)[rownames(signif_genes_filt),]
+  count_mat <- norm_data[rownames(signif_genes_filt),]
   
   count_mat_z <- t(apply(count_mat, 1, scale))
   colnames(count_mat_z) <- colnames(count_mat)
@@ -234,11 +234,12 @@ hmap <- function(numkeep, signif_genes_filt, count_mat_z, hmap_name){
 # numkeep = integer; number of rows (genes) to select for the heatmap
 # signif_genes_filt = dataframe; prefiltered genes according to thresholds 
 # count_mat_z = matrix; z-score of the normalised DESeq data
-hmap_colGrouped <- function(numkeep, signif_genes_filt, count_mat_z, hmap_name){
+hmap_colGrouped <- function(numkeep, signif_genes_filt, count_mat_z, 
+                            hmap_name, sampling_group, sampling_group_col){
   
   # create groupings
-  sampling_group <- rep(c("F", "M", "TR1", "TR2", "TR3", "TR4"), times = c(3, 5, 7, 9, 9, 9))
-  sampling_group_col = c("F" = 5, "M" = 4, "TR1" = 6, "TR2" = 3, "TR3" = 2, "TR4" = 8)
+  sampling_group <- sampling_group
+  sampling_group_col <- sampling_group_col
   
   dend1 = cluster_within_group(count_mat_z, sampling_group)
   
