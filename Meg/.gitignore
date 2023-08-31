@@ -1,0 +1,11 @@
+rds
+data
+figures
+mRNA_and_miRNA.nb.html
+miRNA_normalisation.nb.html
+residuals.nb.html
+skeleVsmito_miRNA.nb.html
+whole_muscle.nb.html
+whole_muscle_pathway.nb.html
+yyyy-mm-dd_sampletype_DEseq2normcounts.csv
+yyyy-mm-dd_sampletype_time2,time1_notes.csv
