@@ -1,0 +1,294 @@
+---
+title: "Comparison of normalisation methods for Human whole muscle and mitochondrial miRNA "
+author: "Megan Soria"
+date: 2023-07-24
+output:
+  html_document:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  html_notebook:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+This notebook aims to compare normalisation methods for micro-RNAs (miRNAs) extracted from whole skeletal muscle and mitrochodrial fractions from 12 participants of an excercise experiment. Each sample was taken pre, post, and 3hours post exercise. 
+
+```{r include=FALSE}
+# load libraries
+library(RUVSeq)
+library(edgeR)
+library(DESeq2)
+library(tidyverse)
+library(RColorBrewer)
+library(RNAseqQC)
+library(ggplot2)
+library(VennDiagram)
+```
+
+# Load counts data and filter out zero counts and 
+```{r}
+# read in column datafile aka sample information file
+muscle.coldata <- read.csv("data/silver_muscle condition.csv", sep = ",", header = TRUE) # do not incl row.names=1
+# change "-" into "." to match with the counts labels
+muscle.coldata <- muscle.coldata %>% arrange(., desc(condition)) %>%
+  mutate(sampleid = gsub("-", ".", sampleid)) %>%
+  mutate(sampleid = gsub(" ", "", sampleid))
+
+# muscle counts
+muscle.cts <- read.csv("data/silver_muscle raw.csv", sep=",", row.names = 1) #keeps miR identifiers as rownames
+muscle.cts[is.na(muscle.cts)] <-0 #replace NA with 0 #now a num not int
+muscle.cts <- muscle.cts[, muscle.coldata$sampleid]
+muscle.cts <- as.matrix(muscle.cts)
+# filter low reads by requiring more than 5 reads in at least two samples for each gene
+filter1 <- apply(muscle.cts, 1, function(x) length(x[x>5])>=2)
+muscle.cts_f <- muscle.cts[filter1,]
+
+# add factors
+muscle.coldata$condition <- factor(muscle.coldata$condition)
+muscle.coldata$sampleid <- factor(muscle.coldata$sampleid)
+# not filtered coldata
+muscle.coldata.nf <- muscle.coldata
+muscle.coldata <- muscle.coldata[muscle.coldata$sampleid %in% colnames(muscle.cts_f),]
+rownames(muscle.coldata) <- muscle.coldata$sampleid
+
+all(muscle.coldata$sampleid == colnames(muscle.cts_f)) #check these both come back as TRUE
+
+# mito
+mito.cts <- read.csv("data/silver_hmt raw_by group.csv", sep=",", row.names = 1) #keeps miR identifiers as rownames
+mito.cts[is.na(mito.cts)] <-0 #replace NA with 0 #now a num not int
+
+# remove sample outliers
+# filter low reads by requiring more than 5 reads in at least two samples for each gene
+filter2 <- apply(mito.cts, 1, function(x) length(x[x>5])>=2)
+mito.cts_f <- mito.cts %>%
+  select(-c("hmtb.12.1_S29_L001.td", "hmta.12.2.2_S30_L001.tdf", "hmtb.12.3_S31_L001.tdf", "hmtb.11.2_S27_L001.tdf", "hmtb.11.3_S28_L001.tdf")) %>%
+  .[filter2,]
+mito.cts_f <- as.matrix(mito.cts_f)
+
+#read in column datafile aka sample information file
+mito.coldata <- read.csv("data/silver_hmt condition_by group.csv", sep = ",", header = TRUE) # do not incl row.names=1
+# change "-" into "." to match with the counts labels
+mito.coldata <- mito.coldata %>%
+  mutate(sampleid = gsub("-", ".", sampleid)) %>%
+  mutate(sampleid = gsub(" ", "", sampleid))
+mito.coldata$condition <- factor(mito.coldata$condition)
+mito.coldata$sampleid <- factor(mito.coldata$sampleid)
+rownames(mito.coldata) <- mito.coldata$sampleid
+# not filtered coldata
+mito.coldata.nf <- mito.coldata
+
+mito.coldata <- mito.coldata[mito.coldata$sampleid %in% colnames(mito.cts_f),]
+all(mito.coldata$sampleid == colnames(mito.cts_f)) #check these both come back as TRUE
+
+datalist = list(mito.coldata.nf = mito.coldata.nf, 
+                mito.cts=mito.cts, 
+                muscle.coldata.nf=muscle.coldata.nf, 
+                muscle.cts=muscle.cts)
+saveRDS(datalist, "rds/miRNAdatasets.RDS")
+rm(datalist)
+
+miRNAdatasets_trimmed = list(mito.coldata = mito.coldata, 
+                mito.cts_f=mito.cts_f, 
+                muscle.coldata=muscle.coldata, 
+                muscle.cts_f=muscle.cts_f)
+saveRDS(miRNAdatasets_trimmed, "rds/miRNAdatasets_trimmed.RDS")
+rm(miRNAdatasets_trimmed)
+```
+
+# Compare normalisation methods using Relative log expression (RLE) plots (Gandolfo and Speed, 2018) 
+
+## Muscle
+```{r }
+# normalise via TMM (edgeR)
+d <- DGEList(counts = muscle.cts_f, group=muscle.coldata[,-1])
+d <- calcNormFactors(d, method="TMM") # get tmm from edgeR
+d = estimateCommonDisp(d, verbose=TRUE)
+tmm_muscle <- d$pseudo.counts
+
+# VSD from DESEq
+dds <- DESeqDataSetFromMatrix(countData = muscle.cts_f,
+                              colData = muscle.coldata,
+                              design = ~ condition)
+muscle.vsd <- varianceStabilizingTransformation(dds, blind=F) 
+
+set1 <- newSeqExpressionSet(as.matrix(muscle.cts_f),
+                            phenoData = AnnotatedDataFrame(data=muscle.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+# upper quantile normalisation
+set_upper.muscle <- betweenLaneNormalization(set1, which="upper")
+
+set_tmm <- newSeqExpressionSet(as.matrix(tmm_muscle),
+                            phenoData = AnnotatedDataFrame(data=muscle.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+
+set_vsd <- newSeqExpressionSet(as.matrix(round(assay(muscle.vsd))),
+                            phenoData = AnnotatedDataFrame(data=muscle.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+
+x <- c(rep(1,11), rep(2,12), rep(3,12))
+colors <- brewer.pal(3, "Set1") 
+plotRLE(set1, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="No Normalisation", xaxt = "n")
+
+plotRLE(set_upper.muscle, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="Upper qunatile", xaxt = "n") 
+
+plotRLE(set_tmm, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="TMM", xaxt = "n")
+
+plotRLE(set_vsd, outline=FALSE, ylim=c(-0.3, 0.3), col=colors[x], xlab="VST", xaxt = "n")
+
+plotPCA(tmm_muscle)
+```
+Based on the RLE plots grouped by condition, the best performing normalisation method for this dataset is TMM, followed by Upper quantile, then VST.
+
+## Mitochondria
+```{r}
+# normalise via TMM (edgeR)
+d <- DGEList(counts = mito.cts_f, group=mito.coldata[,-1])
+d <- calcNormFactors(d, method="TMM") # get tmm from edgeR
+d = estimateCommonDisp(d, verbose=TRUE)
+tmm_mito <- d$pseudo.counts
+
+# VSD from DESEq
+dds <- DESeqDataSetFromMatrix(countData = mito.cts_f,
+                              colData = mito.coldata,
+                              design = ~ condition)
+mito.vsd <- varianceStabilizingTransformation(dds, blind=F) 
+
+set1 <- newSeqExpressionSet(as.matrix(mito.cts_f),
+                            phenoData = AnnotatedDataFrame(data=mito.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+# upper quantile normalisation
+set_upper.mito <- betweenLaneNormalization(set1, which="upper")
+
+set_tmm <- newSeqExpressionSet(as.matrix(tmm_mito),
+                            phenoData = AnnotatedDataFrame(data=mito.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+
+set_vsd <- newSeqExpressionSet(as.matrix(round(assay(mito.vsd))),
+                            phenoData = AnnotatedDataFrame(data=mito.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+
+x <- c(rep(1,8), rep(2,10), rep(3,10))
+colors <- brewer.pal(3, "Set1")
+plotRLE(set1, outline=FALSE, ylim=c(-5, 5), col=colors[x], xlab="No Normalisation", xaxt = "n")
+
+plotRLE(set_upper.mito, outline=FALSE, ylim=c(-3.5, 3.5), col=colors[x], xlab="Upper qunatile Normalisation", xaxt = "n") 
+
+plotRLE(set_tmm, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="Trimmed mean of M values (TMM)", xaxt = "n")
+
+plotRLE(set_vsd, outline=FALSE, ylim=c(-1, 1), col=colors[x], xlab="Variance Stabilising Transformation", xaxt = "n")
+
+plotPCA(tmm_mito)
+
+```
+Based on the RLE plots grouped by condition, the best performing normalisation method for this dataset is Upper quantile, followed by TMM, then VST.
+
+
+# Density plot for gene counts of mitochondria vs muscle miRNAs
+```{r}
+# muscle
+select2 <- as.matrix(assay(muscle.vsd))
+
+#pull out samples by group or time-point
+PRE <- select2[,1:11]
+POST_0h <- select2[,12:23]
+POST_3h <- select2[,24:35]
+
+#row (i.e. miRNA) means by group or time-point
+rmeansPRE <- as.vector(rowMeans(PRE))
+rmeansPOST_0h <- as.vector(rowMeans(POST_0h))
+rmeansPOST_3h <- as.vector(rowMeans(POST_3h))
+
+df.muscle <- data.frame(rmeansPRE, rmeansPOST_0h, rmeansPOST_3h) %>% 
+  mutate(Sample = "Muscle") %>% 
+  mutate(genes = row.names(select2))
+
+
+# mitochondria
+select2 <- as.matrix(assay(mito.vsd)) 
+
+#pull out samples by group or time-point
+PRE <- select2[,1:8]
+POST_0h <- select2[,9:18]
+POST_3h <- select2[,19:28]
+
+#row (i.e. miRNA) means by group or time-point
+rmeansPRE <- as.vector(rowMeans(PRE))
+rmeansPOST_0h <- as.vector(rowMeans(POST_0h))
+rmeansPOST_3h <- as.vector(rowMeans(POST_3h))
+
+df.mito <- data.frame(rmeansPRE, rmeansPOST_0h, rmeansPOST_3h) %>% 
+  mutate(Sample = "Mito") %>% 
+  mutate(genes = row.names(select2))
+
+p <- function(v) {
+  if(length(v) == 2){
+    f=paste(v[1], "&", v[2])
+  }else(f=paste(v))
+  return(f)
+ }
+# pre muscle and mito
+PRE.combined <- df.mito %>% 
+  select(rmeansPRE, Sample, genes) %>%
+  bind_rows(select(df.muscle, rmeansPRE, Sample, genes)) %>%
+  group_by(genes) %>%
+  summarise(rmeansPRE = mean(rmeansPRE),
+            Sample = p(as.character(Sample)))
+
+# 3hr post muscle and mito
+POST3h.combined <- df.mito %>% 
+  select(rmeansPOST_3h, Sample, genes) %>%
+  bind_rows(select(df.muscle, rmeansPOST_3h, Sample, genes)) %>%
+  group_by(genes) %>%
+  summarise(rmeansPOST_3h = mean(rmeansPOST_3h),
+            Sample = p(as.character(Sample)))
+
+# post muscle and mito
+POST.combined <- df.mito %>% 
+  select(rmeansPOST_0h, Sample, genes) %>%
+  bind_rows(select(df.muscle, rmeansPOST_0h, Sample, genes)) %>%
+  group_by(genes) %>%
+  summarise(rmeansPOST_0h = mean(rmeansPOST_0h),
+            Sample = p(as.character(Sample)))
+
+# plot
+theme_set(theme_classic(base_size = 12))
+ggplot(data=PRE.combined, aes(x=rmeansPRE, group=Sample, fill=Sample)) +
+    geom_density(adjust=1.5, alpha=.75) + 
+  scale_fill_brewer(palette = "Set1") +
+  labs(title = "Normalised counts of miRNAs in humans:",
+       subtitle = "mitochondira and muscle pre-exercise") +
+    theme(plot.title=element_text(hjust=0.5),
+          plot.subtitle=element_text(hjust=0.5)) 
+  
+ggplot(data=POST.combined, aes(x=rmeansPOST_0h, group=Sample, fill=Sample)) +
+    geom_density(adjust=1.5, alpha=.75) +
+    scale_fill_brewer(palette = "Set1") +
+    labs(title = "Normalised counts of miRNAs in humans:",
+       subtitle = "mitochondira and muscle post-exercise") +
+     theme(plot.title=element_text(hjust=0.5),
+          plot.subtitle=element_text(hjust=0.5))
+
+ggplot(data=POST3h.combined, aes(x=rmeansPOST_3h, group=Sample, fill=Sample)) +
+    geom_density(adjust=1.5, alpha=.75) +
+    scale_fill_brewer(palette = "Set1") +
+    labs(title = "Normalised counts of miRNAs in humans:",
+       subtitle = "mitochondira and muscle 3 hours post-exercise") +
+     theme(plot.title=element_text(hjust=0.5),
+          plot.subtitle=element_text(hjust=0.5))
+
+```
+
+
+Rerferences:
+Gandolfo, L.C. and Speed, T.P. (2018) ‘RLE plots: Visualizing unwanted variation in high dimensional data’, PLoS ONE, 13(2), p. e0191629. Available at: https://doi.org/10.1371/journal.pone.0191629.
+
+Session Info
+```{r session info}
+sessionInfo()
+```
+

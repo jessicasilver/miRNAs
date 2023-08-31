@@ -1,0 +1,215 @@
+---
+title: "Human whole muscle vs mitochondrial miRNA Analysis"
+author: "Jessica Silver (additional analysis by Megan Soria)" 
+date: 2023-07-09
+output:
+  html_document:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  html_notebook:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+source: https://github.com/jessicasilver/miRNAs
+
+# Summary and background information
+The data used in this analysis is from an exercise intervention study in 12 human participants conducted by **[name]** on **[year]**. Muscle biopsies were taken at 3 time points for each participant: pre-exercise, post-exercise, and 3 hours post-exercise <br> <br>
+A whole muscle and a mitochondrial fraction is extracted from each biopsy. <br> <br>
+
+This analysis focuses on the differential expression of the miRNA of human whole muscle and mitochondrial transcriptome.  
+
+# Load and install packages
+The following packages are required for the following analysis and visualisation. The code below will automatically install and load packages from CRAN. Packages from Bioconductor can be installed as needed. Sometimes these installations will throw an error and specific packages might need to be installed manually.
+
+```{r include=FALSE}
+suppressPackageStartupMessages({c(
+  # packages from CRAN
+  if(!require("prettydoc")) install.packages("prettydoc"), library(prettydoc),
+  if(!require("dplyr")) install.packages("dplyr"), library(dplyr),
+  if(!require("RColorBrewer")) install.packages("RColorBrewer"), library(RColorBrewer),
+  if(!require("circlize")) install.packages("circlize"), library(circlize),
+  library(ggplot2),
+  library(RNAseqQC),
+  library(DESeq2),
+  library(edgeR),
+  library(ComplexHeatmap),
+  library(EnhancedVolcano),
+  library(PCAtools),
+  library(fgsea),
+  library(msigdbr),
+  library(tidyverse),
+  library(clusterProfiler),
+  library(enrichplot)
+  )})
+
+# if (!require("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+# BiocManager::install("DESeq2")
+  
+# load self-authored functions 
+source("functions.R")
+```
+
+***
+# Load data 
+```{r}
+# load results from normalisation.
+miRNAdatasets = readRDS("rds/miRNAdatasets_trimmed.RDS")
+
+# muscle
+muscle.cts <- miRNAdatasets$muscle.cts_f
+muscle.coldata <- miRNAdatasets$muscle.coldata
+all(muscle.coldata$sampleid == colnames(muscle.cts))
+
+# mito
+mito.cts <- miRNAdatasets$mito.cts_f
+mito.coldata <- miRNAdatasets$mito.coldata
+all(mito.coldata$sampleid == colnames(mito.cts))
+
+rm(miRNAdatasets)
+```
+
+# Differential expression analysis 
+The following differential expression analysis is conducted using the DESeq2 package
+
+## Normalisation using (Trimmed Mean of M values) TMM
+TMM is originally from the edgeR package. The supporting information section of [this paper](https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0157022) details how to apply TMM normalisation from edgeR in the DESeq2 pipeline.
+```{r}
+# muscle
+d1 <- DGEList(counts = muscle.cts, group=muscle.coldata[,-1])
+d1 <- calcNormFactors(d1, method="TMM") # get tmm from edgeR
+d1.1 = estimateCommonDisp(d1, verbose=TRUE)
+N <- d1$samples$lib.size #vector of library sizes
+tmm <- d1$samples$norm.factors
+tmm.counts.muscle <- N*tmm/exp(mean(log(N*tmm)))
+
+# mito
+d2 <- DGEList(counts = mito.cts, group=mito.coldata[,-1])
+d2 <- calcNormFactors(d2, method="TMM") # get tmm from edgeR
+d2.1 = estimateCommonDisp(d2, verbose=TRUE)
+N <- d2$samples$lib.size #vector of library sizes
+tmm <- d2$samples$norm.factors
+tmm.counts.mito <- N*tmm/exp(mean(log(N*tmm)))
+```
+
+## Differential expression anlysis for muscle
+```{r}
+#set up deseq2 object
+dds <- DESeqDataSetFromMatrix(countData = muscle.cts,
+                              colData = muscle.coldata,
+                              design = ~ condition)
+dds$condition <- relevel(dds$condition, ref = "PRE") 
+
+# apply TMM scaling factors
+sizeFactors(dds) <- tmm.counts.muscle
+
+dds <- DESeq(dds) #run deseq2
+
+ddsResults <- resNames_list(dds)
+hr3POST_vs_POST <- results(dds, contrast=c("condition","3HPOST","POST")) %>%
+  .[order(.$log2FoldChange, decreasing = TRUE),] %>%
+      as.data.frame(.)
+condition_3HPOST_vs_POST <- list("condition_3HPOST_vs_POST" = hr3POST_vs_POST)
+
+# store all contrasts in a list 
+ddsResults_musc <- append(ddsResults, condition_3HPOST_vs_POST)
+
+saveRDS(ddsResults_musc, "rds/dddsResults_miRmusc.rds")
+
+# normalise for PCA plot: use varianceStabilizingTransformation() for nrow(dds) < 1000
+muscle.vst <- varianceStabilizingTransformation(dds, blind=F) 
+
+#extract the results for each comparison that you are interested in 
+muscle.res <- as.data.frame(results(dds, contrast=c("condition","3HPOST","PRE")))
+muscle.res <- muscle.res[order(muscle.res$pvalue),]
+
+summary(muscle.res)
+head(muscle.res)
+
+saveRDS(muscle.res, "rds/muscle.res.rds")
+```
+
+## Differential expression anlysis for mitochondria
+```{r}
+#set up deseq2 object
+dds <- DESeqDataSetFromMatrix(countData = mito.cts,
+                              colData = mito.coldata,
+                              design = ~ condition)
+dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline. #hsa=PRE #rno=SED
+
+# apply TMM scaling factors
+sizeFactors(dds) <- tmm.counts.mito
+
+dds <- DESeq(dds) #run deseq2
+
+ddsResults <- resNames_list(dds)
+hr3POST_vs_POST <- results(dds, contrast=c("condition","3HPOST","POST")) %>%
+  .[order(.$log2FoldChange, decreasing = TRUE),] %>%
+      as.data.frame(.)
+condition_3HPOST_vs_POST <- list("condition_3HPOST_vs_POST" = hr3POST_vs_POST)
+
+# store all contrasts in a list 
+ddsResults_mito <- append(ddsResults, condition_3HPOST_vs_POST)
+
+saveRDS(ddsResults_mito, "rds/dddsResults_miRmito.rds")
+
+# normalise: use varianceStabilizingTransformation() for nrow(dds2) < 1000
+mito.vst <- varianceStabilizingTransformation(dds, blind=F) 
+
+#extract the results for each comparison that you are interested in 
+mito.res <- as.data.frame(results(dds, contrast=c("condition","3HPOST","PRE")))
+mito.res <- mito.res[order(mito.res$pvalue),]
+summary(mito.res)
+head(mito.res)
+
+saveRDS(mito.res, "rds/mito.res.rds")
+```
+# Visualisations
+
+## Heatmaps
+```{r fig.width=16.22, include=FALSE}
+# muscle
+signif.muscle <- muscle.res %>%
+  subset(., pvalue < 0.1) 
+count_mat <- z_score(d1.1$pseudo.counts, signif.muscle)
+hmap_name <- "Muscle miRNAs by time point"
+hmap.muscle <- hmap(30, signif.muscle, count_mat, hmap_name)
+# grouped hmap
+sampling_group <- rep(c("Pre", "Post", "3hrPost"), times = c(11, 12, 12))
+sampling_group_col <- c("Pre" = "#E41A1C", "Post" = "#377EB8", "3hrPost" = "#4DAF4A")
+hmap_name <- "Muscle miRNAs"
+hmap.muscle.g <- hmap_colGrouped(30, signif.muscle, count_mat, 
+                               hmap_name, sampling_group, sampling_group_col)
+
+# mito
+signif.mito <- mito.res %>%
+  subset(., pvalue < 0.1) 
+count_mat <- z_score(d2.1$pseudo.counts, signif.mito)
+hmap_name <- "Mitochondrial miRNAs"
+hmap.mito <- hmap(30, signif.mito, count_mat, hmap_name)
+# grouped hmap
+sampling_group <- rep(c("Pre", "Post", "3hrPost"), times = c(8, 10, 10))
+sampling_group_col <- c("Pre" = "#E41A1C", "Post" = "#377EB8", "3hrPost" = "#4DAF4A")
+hmap_name <- "Mitochondrial miRNAs by time point"
+hmap.mito.g <- hmap_colGrouped(30, signif.mito, count_mat, 
+                               hmap_name, sampling_group, sampling_group_col)
+```
+
+
+```{r fig.width=16.22}
+hmap.muscle
+hmap.mito
+hmap.muscle.g
+hmap.mito.g
+```
+
+Session Info
+```{r session info}
+sessionInfo()
+```

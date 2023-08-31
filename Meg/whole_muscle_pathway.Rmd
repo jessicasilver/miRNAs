@@ -50,20 +50,20 @@ http://www.bioconductor.org/packages/devel/bioc/vignettes/rWikiPathways/inst/doc
 
 # Load Differentially Expressed Genes
 ```{r}
-ddsResults_list <- readRDS("rds/ddsResults_list.rds")
+ddsResults_list <- readRDS("/mnt/data/megan/Danielle_RA/Jess/miRNAs/Meg/rds/ddsResults_wholeMusc.rds")
 
 # put contrasts into separate DBs and remove ensembl id versions 
 preVs3hrPost <- ddsResults_list[[1]] %>% 
   rownames_to_column(var = "ENSEMBL") %>% 
-  mutate(ENSEMBL = gsub("[.].", "", .$ENSEMBL))
+  mutate(ENSEMBL = gsub("\\..*","", .$ENSEMBL))
 
 preVpost <- ddsResults_list[[2]] %>% 
   rownames_to_column(var = "ENSEMBL") %>% 
-  mutate(ENSEMBL = gsub("[.].", "", .$ENSEMBL))
+  mutate(ENSEMBL = gsub("\\..*","", .$ENSEMBL))
 
 postVs3hrPost <- ddsResults_list[[3]] %>% 
   rownames_to_column(var = "ENSEMBL") %>% 
-  mutate(ENSEMBL = gsub("[.].", "", .$ENSEMBL))
+  mutate(ENSEMBL = gsub("\\..*","", .$ENSEMBL))
 
 # create clusterProfiler inputs for ORA and GSEA
 preV3h_input <- cProfilr_input(preVs3hrPost)
@@ -194,7 +194,7 @@ dotplot(ck, showCategory=7, split=".sign",
         label_format = 40,
         font.size = 10,) +
         facet_grid(.~.sign) + 
-        labs(title = "Gene Set Enrichment Analysis comparison for PreVsPost and PreVs3hPost DE Genes",
+        labs(title = "Gene Set Enrichment Analysis comparison for PreVsPost and PreVs3hPost DE Genes", 
              subtitle = "Top 7 Genes: FDR < 0.05, -1 > logfold2Change > 1 ") +
         theme(plot.title=element_text(hjust=0.5, size = 25, face = "bold"),
               plot.subtitle=element_text(hjust=0.5, size = 20, face = "bold"))

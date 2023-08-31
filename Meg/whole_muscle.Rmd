@@ -25,7 +25,7 @@ A whole muscle and a mitochondrial fraction is extracted from each biopsy. This 
 ## Load and install packages
 The following packages are required for the following analysis and visualisation. The code below will automatically install and load packages from CRAN. Packages from Bioconductor can be installed by un-commenting (removing the # before the line or selecting the code block and pressing ctrl+shift+c) and running  the code block for the Bioconductor packages. Sometimes these installations will throw an error and specific packages might need to be installed manually.
 
-```{r echo = T, results = 'hide'}
+```{r include=FALSE}
 suppressPackageStartupMessages({c(
   # packages from CRAN
   if(!require("prettydoc")) install.packages("prettydoc"), library(prettydoc),
@@ -88,12 +88,7 @@ dds <- dds[keep,]
 dds <- DESeq(dds) #run deseq2
 
 #extract the results for each comparison that you are interested in 
-res <- results(dds, contrast=c("condition","3HPOST","PRE")) #any of 3HPOST, POST or PRE for hsa. For rno, only option will be `"TRAINED", "SEDENTARY"`
-res
-
-#change alpha level for FDR if required:
-#res05 <- results(dds, alpha=0.05)
-#summary(res05)
+res <- results(dds, contrast=c("condition","3HPOST","PRE")) 
 
 resOrdered <- res[order(res$pvalue),]
 summary(resOrdered)
@@ -110,8 +105,6 @@ head(resOrdered)
 ```{r deseq2_norm, results='hide'}
 dds <- estimateSizeFactors(dds)
 normcounts <- counts(dds, normalized=TRUE)
-
-write.csv(as.data.frame(normcounts), file="yyyy-mm-dd_sampletype_DEseq2normcounts.csv")
 ```
 
 ### Extract all possible contrasts 
@@ -130,10 +123,11 @@ condition_3HPOST_vs_POST <- list("condition_3HPOST_vs_POST" = hr3POST_vs_POST)
 ddsResults_list <- append(ddsResults, condition_3HPOST_vs_POST)
 names(ddsResults_list)
 
-#saveRDS(ddsResults_list, "rds/ddsResults_list.rds")
+saveRDS(ddsResults_list, "rds/ddsResults_wholeMusc.rds")
 
 # threshFilter() function sourced from function.R
 ddsSignif_contrasts <- threshFilter(ddsResults_list, padjust = 0.05, L2FC = 1)
+saveRDS(ddsSignif_contrasts, "rds/ddsSignif_wholeMusc.rds")
 
 ```
 
@@ -255,7 +249,7 @@ plot_grid(plotlist = plots, ncol = 2, labels = LETTERS[1:length(plots)], label_s
 ```
 
 Session Info
-```{r session info}
+```{r session info} 
 sessionInfo()
 ```
 

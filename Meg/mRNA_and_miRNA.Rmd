@@ -1,0 +1,389 @@
+---
+title: "mRNA and miRNA expression profile analysis"
+author: "Megan Soria"
+date: 2023-07-27 
+output:
+  html_document:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  html_notebook:
+    theme: lumen
+    toc: yes
+    toc_float: true
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+This notebook aims to consolidate mRNA and miRNA expression profiles form from 12 participants of an exercise experiment. Each sample was taken pre, post, and 3hours post exercise. This analysis mainly uses the `mirTarRnaSeq` package (Movassagh et al., 2022)
+
+```{r include=FALSE}
+#load libraries
+library(mirTarRnaSeq)
+library(tidyverse)
+library(dplyr)
+
+set.seed(42)
+```
+
+```{r eval=FALSE, fig.height=10, fig.width=30, include=FALSE}
+# Load DESeq results for mRNA muscle
+mrna_files <- readRDS("rds/ddsResults_wholeMusc.rds")
+mrna_files <- list(c3HPOST_vs_PRE = mrna_files$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)),
+                   cPOST_vs_PRE = mrna_files$condition_POST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)),
+                   c3HPOST_vs_POST = mrna_files$condition_3HPOST_vs_POST %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)))
+# Combine into one dataset
+mrna <- one2OneRnaMiRNA(mrna_files, 
+                        gene_colname = "gene",
+                         fc_colname ="log2FoldChange",
+                        pthreshold = 0.05)$foldchanges
+# Load DESeq results for miRNA muscle
+mirna_files <- readRDS("rds/dddsResults_miRmusc.rds")
+mirna_musc <- list(c3HPOST_vs_PRE = mirna_files$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)),
+                   cPOST_vs_PRE = mirna_files$condition_POST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)),
+                   c3HPOST_vs_POST = mirna_files$condition_3HPOST_vs_POST %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)))
+# Combine into one dataset
+mirna <- one2OneRnaMiRNA(mirna_musc, gene_colname = "miR_ID",
+                         fc_colname ="log2FoldChange", pthreshold = 0.05)$foldchanges
+
+# Make a background distribution correlation
+outs <- sampCorRnaMirna(mrna, mirna,method="pearson",
+Shrounds = 100, Srounds = 1000)
+
+# Get mRNA miRNA correlation
+corr_0 <- corMirnaRna(mrna, mirna, method="pearson", main = "Default mRNA miRNA heatmap")
+mirRnaHeatmap(corr_0,upper_bound = -0.7)
+
+# Draw density plot
+mirRnaDensityCor(corr_0, outs)
+
+#Identify significant correlation
+sig_corrs <- threshSig(corr_0, outs, pvalue = 0.05)
+mirRnaHeatmap(sig_corrs,upper_bound = -0.7)
+
+# Extract your target correlations based on miRanda and correlation threshold.
+# output columns: miRanda score, folding energy, seed match score, and alignment characteristics score
+# This runs for a long time so better save the database once it is finished
+#miRanda <- getInputSpecies("Human1", threshold = 150)
+#saveRDS(miRanda, "rds/miRanda.rds")
+
+# Extract your target correlations based on miRanda and correlation threshold.
+newcorr <- corMirnaRnaMiranda(mrna, mirna, -0.8, miRanda)
+mirRnaHeatmap(newcorr,upper_bound = -0.7)
+
+# Make final results file for significant correlations intersecting with miRanda file
+results <- miRandaIntersect(sig_corrs, outs, mrna, mirna, miRanda)
+#Draw correlation heatmap
+p<- mirRnaHeatmap(results$corr,upper_bound =-0.99)
+p
+```
+
+# Muscle mRNA and miRNA  correlations across 3 time points  
+### Calculations (pre-filtered/significant DEgenes only for whole muscle mRNA)
+```{r fig.height=11, fig.width=4.5, include=FALSE}
+# Load and transform mRNA and miRNA DESeq results
+mrna_files <- readRDS("rds/ddsSignif_wholeMusc.rds")
+mrna_files <- list(c3HPOST_vs_PRE = mrna_files$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)),
+                   cPOST_vs_PRE = mrna_files$condition_POST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)),
+                   c3HPOST_vs_POST = mrna_files$condition_3HPOST_vs_POST %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)))
+# Combine into one dataset
+mrna <- one2OneRnaMiRNA(mrna_files, 
+                        gene_colname = "gene",
+                         fc_colname ="log2FoldChange")$foldchanges
+
+mirna_files <- readRDS("rds/dddsResults_miRmusc.rds")
+mirna_musc <- list(c3HPOST_vs_PRE = mirna_files$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)),
+                   cPOST_vs_PRE = mirna_files$condition_POST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)),
+                   c3HPOST_vs_POST = mirna_files$condition_3HPOST_vs_POST %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)))
+mirna <- one2OneRnaMiRNA(mirna_musc, gene_colname = "miR_ID",
+                         fc_colname ="log2FoldChange", pthreshold = 0.05)$foldchanges
+
+# Make a background distribution correlation
+outs <- sampCorRnaMirna(mrna, mirna,method="pearson",
+Shrounds = 100, Srounds = 1000)
+
+corr_0 <- corMirnaRna(mrna, mirna, method="pearson")
+
+#Identify significant correlation
+sig_corrs <- threshSig(corr_0, outs, pvalue = 0.05)
+
+#Import concordant miRanda file
+# output columns: miRanda score, folding energy, seed match score, and alignment characteristics score
+#miRanda <- getInputSpecies("Human1", threshold = 150)
+#saveRDS(miRanda, "rds/miRanda.rds")
+
+miRanda <- readRDS("rds/miRanda.rds")
+
+#Extract your target correlations based on miRanda and correlation threshold. 
+newcorr <- corMirnaRnaMiranda(mrna, mirna, -0.7, miRanda)
+
+#Make final results file for significant correlations intersecting with miRanda file
+results <- miRandaIntersect(sig_corrs, outs, mrna, mirna, miRanda)
+
+```
+
+## Plots
+```{r fig.height=12, fig.width=5}
+mirRnaHeatmap(corr_0,upper_bound = -0.7,
+              main = str_wrap("Muscle mRNA and miRNA fold change correlation for all time points", width =50))
+```
+
+```{r fig.height=7, fig.width=6}
+mirRnaHeatmap(sig_corrs,upper_bound = -0.7,
+                               main = str_wrap("Significant muscle mRNA and miRNA fold change correlation for 
+              all time points (pvalue = 0.05, upper_bound = -0.7)", width = 80))
+```
+
+```{r fig.height=5, fig.width=4}
+mirRnaHeatmap(newcorr,upper_bound = -0.5,
+              main = str_wrap("Target correlations based on miRanda and correlation threshold (>=0.7) for all time points)", width = 50))
+```
+
+```{r fig.height=4, fig.width=4}
+mirRnaHeatmap(results$corr,upper_bound =-0.90,
+                  main = str_wrap("Significant muscle mRNA and miRNA fold change correlation with miRanda intersection for all time points (pvalue = 0.05, upper bound >=0.9)", width = 50)) 
+```
+
+------
+
+# Muscle mRNA and mitochondrial miRNA  correlations across 3 time points
+### Calculations (pre-filtered/significant DEgenes only for whole muscle mRNA)
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE, results='hide'}
+mrna_files <- readRDS("rds/ddsSignif_wholeMusc.rds")
+mrna_files <- list(c3HPOST_vs_PRE = mrna_files$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)),
+                   cPOST_vs_PRE = mrna_files$condition_POST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)),
+                   c3HPOST_vs_POST = mrna_files$condition_3HPOST_vs_POST %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)))
+
+mrna <- one2OneRnaMiRNA(mrna_files, 
+                        gene_colname = "gene",
+                         fc_colname ="log2FoldChange",
+                        pthreshold = 0.05)$foldchanges
+
+mirna_files <- readRDS("rds/dddsResults_miRmito.rds")
+mirna_musc <- list(c3HPOST_vs_PRE = mirna_files$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)),
+                   cPOST_vs_PRE = mirna_files$condition_POST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)),
+                   c3HPOST_vs_POST = mirna_files$condition_3HPOST_vs_POST %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)))
+mirna <- one2OneRnaMiRNA(mirna_musc, gene_colname = "miR_ID",
+                         fc_colname ="log2FoldChange", pthreshold = 0.05)$foldchanges
+
+# Make a background distribution correlation
+outs <- sampCorRnaMirna(mrna, mirna,method="pearson",
+Shrounds = 100, Srounds = 1000)
+
+corr_0 <- corMirnaRna(mrna, mirna, method="pearson")
+
+#Identify significant correlation
+sig_corrs <- threshSig(corr_0, outs, pvalue = 0.05)
+
+#Extract your target correlations based on miRanda and correlation threshold.
+# output columns: miRanda score, folding energy, seed match score, and alignment characteristics score
+#miRanda <- getInputSpecies("Human1", threshold = 150)
+#saveRDS(miRanda, "rds/miRanda.rds")
+
+newcorr <- corMirnaRnaMiranda(mrna, mirna, -0.7, miRanda)
+
+#Make final results file for significant correlations intersecting with miRanda file
+results <- miRandaIntersect(sig_corrs, outs, mrna, mirna, miRanda)
+```
+
+## Plots
+```{r fig.height=7, fig.width=6}
+mirRnaHeatmap(corr_0, upper_bound = -0.7,
+              main = str_wrap("Muscle mRNA and mitochondrial miRNA fold change correlation for all time points", width =50))
+```
+
+```{r fig.height= 4.5, fig.width=4.5}
+mirRnaHeatmap(sig_corrs,upper_bound = -0.7,
+                               main = str_wrap("Significant muscle mRNA and mitochondrial miRNA fold change correlation for 
+              all time points (pvalue = 0.05, upper_bound = -0.7)", width = 50))
+```
+
+```{r fig.height=4, fig.width=5.5}
+mirRnaHeatmap(newcorr,upper_bound = -0.5,
+              main = str_wrap("Target correlations based on miRanda and correlation threshold (>=0.7) for all time points)", width = 50))
+```
+
+```{r fig.height=6, fig.width=6}
+# Significant muscle mRNA and mitochondrial miRNA fold change correlation with miRanda intersection for all time points (pvalue = 0.05)
+# Heatmap cannot be plotted because there are too few rows
+
+res <- results$corr %>% 
+  dplyr::select(c(V1, V2, pvalue))
+
+colnames(res) <- c("miRNA", "Target Gene", "pvalue")
+
+res
+```
+
+-----
+
+# Muscle mRNA and mitochondrial miRNA correlations at 3hr post vs pre exercise
+### Calculations (pre-filtered/significant DEgenes only for whole muscle mRNA)
+```{r include=FALSE}
+mrna_file <- readRDS("rds/ddsSignif_wholeMusc.rds")
+mrna_file1 <- list(c3HPOST_vs_PRE = mrna_file$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)))
+
+mrna <- one2OneRnaMiRNA(mrna_file1, 
+                        gene_colname = "gene",
+                         fc_colname ="log2FoldChange",
+                        pthreshold = 0.05)$foldchanges
+
+mirna_file2 <- readRDS("rds/dddsResults_miRmito.rds")
+mirna_file2 <- list(c3HPOST_vs_PRE.musc = mirna_file2$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)))
+mirna <- one2OneRnaMiRNA(mirna_file2, 
+                         gene_colname = "miR_ID",
+                         fc_colname ="log2FoldChange",
+                         pthreshold = 0.05)$foldchanges
+
+# Estimate the miRNA mRNA FC differences for your dataset
+inter0 <- twoTimePoint(mrna, mirna)
+
+#Make a background distribution for your miRNA mRNA FC differences
+outs <- twoTimePointSamp(mrna, mirna,Shrounds = 10 )
+
+#Identify miRNA mRNA relationships bellow a P value threshold, default is 0.05
+sig_InterR <- threshSigInter(inter0, outs)
+
+#Intersect the mirRanda file with your output results
+results <- mirandaIntersectInter(sig_InterR, outs, mrna, mirna, miRanda)
+
+#Create a results file for heatmap
+final_results <- finInterResult(results)
+#Draw plots of miRNA mRNA fold changes for your results file
+par(mar=c(4,4,2,1))
+drawInterPlots(mrna,mirna,final_results)
+
+CorRes<-results$corrs
+#Draw heatmap for miRNA mRNA significant differences
+#Note: you do not have to use the upper_bound function unless you want to investigate a particular range for miRNA mRNA differences/relationships
+```
+
+### Plots
+```{r fig.height=3.5, fig.width=6}
+mirRnaHeatmapDiff(CorRes,upper_bound = 9.9,
+              main = str_wrap("miRanda intersection with mussle mRNA and mitochondrial miRNA correlations at 3hr post vs pre exercise", width =50))
+```
+
+----
+
+# Muscle mRNA and miRNA correlations at 3hr post vs pre exercise
+### Calculations (pre-filtered/significant DEgenes only for whole muscle mRNA)
+```{r }
+mrna_file <- readRDS("rds/ddsSignif_wholeMusc.rds")
+mrna_file1 <- list(c3HPOST_vs_PRE = mrna_file$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "gene") %>%
+                     mutate(gene = gsub("\\..*","", .$gene)) %>%
+                     dplyr::select(c(gene, log2FoldChange, pvalue)))
+
+mrna <- one2OneRnaMiRNA(mrna_file1, 
+                        gene_colname = "gene",
+                         fc_colname ="log2FoldChange",
+                        pthreshold = 0.05)$foldchanges
+
+mirna_file2 <- readRDS("rds/dddsResults_miRmusc.rds")
+mirna_file2 <- list(c3HPOST_vs_PRE.musc = mirna_file2$condition_3HPOST_vs_PRE %>%
+                     rownames_to_column(., var = "miR_ID") %>%
+                     mutate(miR_ID = gsub("\\..*","", .$miR_ID)) %>%
+                     dplyr::select(c(miR_ID, log2FoldChange, pvalue)))
+mirna <- one2OneRnaMiRNA(mirna_file2, 
+                         gene_colname = "miR_ID",
+                         fc_colname ="log2FoldChange",
+                         pthreshold = 0.05)$foldchanges
+
+# Estimate the miRNA mRNA FC differences for your dataset
+inter0 <- twoTimePoint(mrna, mirna)
+
+#Make a background distribution for your miRNA mRNA FC differences
+outs <- twoTimePointSamp(mrna, mirna,Shrounds = 10 )
+
+#Identify miRNA mRNA relationships bellow a P value threshold, default is 0.05
+sig_InterR <- threshSigInter(inter0, outs)
+
+#Intersect the mirRanda file with your output results
+results <- mirandaIntersectInter(sig_InterR, outs, mrna, mirna, miRanda)
+
+#Create a results file for heatmap
+final_results <- finInterResult(results)
+#Draw plots of miRNA mRNA fold changes for your results file
+par(mar=c(4,4,2,1))
+drawInterPlots(mrna,mirna,final_results)
+
+CorRes<-results$corrs
+#Draw heatmap for miRNA mRNA significant differences
+#Note: you do not have to use the upper_bound function unless you want to investigate a particular range for miRNA mRNA differences/relationships
+```
+
+### Plots
+```{r fig.height=6, fig.width=5.5}
+mirRnaHeatmapDiff(CorRes,upper_bound = 9.9,
+              main = str_wrap("miRanda intersection with mussle mRNA and miRNA correlations at 3hr post vs pre exercise", width =50))
+```
+### References
+Movassagh, M. et al. (2022) ‘mirTarRnaSeq: An R/Bioconductor Statistical Package for miRNA-mRNA Target Identification and Interaction Analysis’, BMC Genomics, 23(1), pp. 1–17. Available at: https://doi.org/10.1186/s12864-022-08558-w.
+
+# Session Info
+```{r session info}
+sessionInfo()
+```
+
