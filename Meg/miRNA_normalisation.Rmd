@@ -97,83 +97,105 @@ miRNAdatasets_trimmed = list(mito.coldata = mito.coldata,
                 muscle.coldata=muscle.coldata, 
                 muscle.cts_f=muscle.cts_f)
 saveRDS(miRNAdatasets_trimmed, "rds/miRNAdatasets_trimmed.RDS")
-rm(miRNAdatasets_trimmed)
 ```
 
 # Compare normalisation methods using Relative log expression (RLE) plots (Gandolfo and Speed, 2018) 
 
 ## Muscle
-```{r }
+```{r fig.width=8, fig.height=5}
 # normalise via TMM (edgeR)
-d <- DGEList(counts = muscle.cts_f, group=muscle.coldata[,-1])
+d <- DGEList(counts = miRNAdatasets_trimmed$muscle.cts_f, group=muscle.coldata[,-1])
 d <- calcNormFactors(d, method="TMM") # get tmm from edgeR
 d = estimateCommonDisp(d, verbose=TRUE)
 tmm_muscle <- d$pseudo.counts
 
 # VSD from DESEq
-dds <- DESeqDataSetFromMatrix(countData = muscle.cts_f,
-                              colData = muscle.coldata,
+dds <- DESeqDataSetFromMatrix(countData = miRNAdatasets_trimmed$muscle.cts_f,
+                              colData = miRNAdatasets_trimmed$muscle.coldata,
                               design = ~ condition)
 muscle.vsd <- varianceStabilizingTransformation(dds, blind=F) 
 
-set1 <- newSeqExpressionSet(as.matrix(muscle.cts_f),
-                            phenoData = AnnotatedDataFrame(data=muscle.coldata, 
-                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+set1 <- newSeqExpressionSet(as.matrix(miRNAdatasets_trimmed$muscle.cts_f),
+                            phenoData = AnnotatedDataFrame(data = 
+                                        miRNAdatasets_trimmed$muscle.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", 
+                                                                        "condition"))))
 # upper quantile normalisation
 set_upper.muscle <- betweenLaneNormalization(set1, which="upper")
 
 set_tmm <- newSeqExpressionSet(as.matrix(tmm_muscle),
-                            phenoData = AnnotatedDataFrame(data=muscle.coldata, 
+                            phenoData = AnnotatedDataFrame(data
+                                      = miRNAdatasets_trimmed$muscle.coldata, 
                             varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
 
 set_vsd <- newSeqExpressionSet(as.matrix(round(assay(muscle.vsd))),
-                            phenoData = AnnotatedDataFrame(data=muscle.coldata, 
-                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+                            phenoData = AnnotatedDataFrame(data = 
+                                        miRNAdatasets_trimmed$muscle.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", 
+                                                                        "condition"))))
 
 x <- c(rep(1,11), rep(2,12), rep(3,12))
 colors <- brewer.pal(3, "Set1") 
+
 plotRLE(set1, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="No Normalisation", xaxt = "n")
 
 plotRLE(set_upper.muscle, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="Upper qunatile", xaxt = "n") 
 
 plotRLE(set_tmm, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="TMM", xaxt = "n")
 
-plotRLE(set_vsd, outline=FALSE, ylim=c(-0.3, 0.3), col=colors[x], xlab="VST", xaxt = "n")
+plotRLE(set_vsd, outline=FALSE, ylim=c(-1, 1), col=colors[x], xlab="VST", xaxt = "n")
 
-plotPCA(tmm_muscle)
+plotPCA(tmm_muscle, col=rep(1:3, times = c(11, 12, 12)), labels=FALSE)
+
+pdf(file = "figures/miRNA_musc_normalisation.pdf",   
+    width = 8, # The width of the plot in inches
+    height = 5) # The height of the plot in inches
+plotRLE(set1, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="No Normalisation", xaxt = "n")
+plotRLE(set_upper.muscle, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="Upper qunatile", xaxt = "n") 
+plotRLE(set_tmm, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="TMM", xaxt = "n")
+plotRLE(set_vsd, outline=FALSE, ylim=c(-1, 1), col=colors[x], xlab="VST", xaxt = "n")
+plotPCA(tmm_muscle, col=rep(1:3, times = c(11, 12, 12)), labels=FALSE)
+dev.off()
 ```
 Based on the RLE plots grouped by condition, the best performing normalisation method for this dataset is TMM, followed by Upper quantile, then VST.
 
 ## Mitochondria
-```{r}
+```{r fig.width=8, fig.height=5}
 # normalise via TMM (edgeR)
-d <- DGEList(counts = mito.cts_f, group=mito.coldata[,-1])
+d <- DGEList(counts = miRNAdatasets_trimmed$mito.cts_f, group=mito.coldata[,-1])
 d <- calcNormFactors(d, method="TMM") # get tmm from edgeR
 d = estimateCommonDisp(d, verbose=TRUE)
 tmm_mito <- d$pseudo.counts
 
 # VSD from DESEq
-dds <- DESeqDataSetFromMatrix(countData = mito.cts_f,
-                              colData = mito.coldata,
+dds <- DESeqDataSetFromMatrix(countData = miRNAdatasets_trimmed$mito.cts_f,
+                              colData = miRNAdatasets_trimmed$mito.coldata,
                               design = ~ condition)
 mito.vsd <- varianceStabilizingTransformation(dds, blind=F) 
 
-set1 <- newSeqExpressionSet(as.matrix(mito.cts_f),
-                            phenoData = AnnotatedDataFrame(data=mito.coldata, 
-                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+set1 <- newSeqExpressionSet(as.matrix(miRNAdatasets_trimmed$mito.cts_f),
+                            phenoData = AnnotatedDataFrame(data=
+                                      miRNAdatasets_trimmed$mito.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", 
+                                                                        "condition"))))
 # upper quantile normalisation
 set_upper.mito <- betweenLaneNormalization(set1, which="upper")
 
 set_tmm <- newSeqExpressionSet(as.matrix(tmm_mito),
-                            phenoData = AnnotatedDataFrame(data=mito.coldata, 
-                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+                            phenoData = AnnotatedDataFrame(data=
+                                      miRNAdatasets_trimmed$mito.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", 
+                                                                        "condition"))))
 
 set_vsd <- newSeqExpressionSet(as.matrix(round(assay(mito.vsd))),
-                            phenoData = AnnotatedDataFrame(data=mito.coldata, 
-                            varMetadata = data.frame(labelDescription=c("sampleid", "condition"))))
+                            phenoData = AnnotatedDataFrame(data=
+                                        miRNAdatasets_trimmed$mito.coldata, 
+                            varMetadata = data.frame(labelDescription=c("sampleid", 
+                                                                        "condition"))))
 
 x <- c(rep(1,8), rep(2,10), rep(3,10))
 colors <- brewer.pal(3, "Set1")
+
 plotRLE(set1, outline=FALSE, ylim=c(-5, 5), col=colors[x], xlab="No Normalisation", xaxt = "n")
 
 plotRLE(set_upper.mito, outline=FALSE, ylim=c(-3.5, 3.5), col=colors[x], xlab="Upper qunatile Normalisation", xaxt = "n") 
@@ -182,14 +204,24 @@ plotRLE(set_tmm, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="Trimmed mean
 
 plotRLE(set_vsd, outline=FALSE, ylim=c(-1, 1), col=colors[x], xlab="Variance Stabilising Transformation", xaxt = "n")
 
-plotPCA(tmm_mito)
+plotPCA(tmm_mito, col=rep(1:3, times = c(9, 12, 12)), labels=FALSE)
+
+pdf(file = "figures/miRNA_mito_normalisation.pdf",   
+    width = 15, # The width of the plot in inches
+    height = 12) # The height of the plot in inches
+plotRLE(set1, outline=FALSE, ylim=c(-5, 5), col=colors[x], xlab="No Normalisation", xaxt = "n")
+plotRLE(set_upper.mito, outline=FALSE, ylim=c(-3.5, 3.5), col=colors[x], xlab="Upper qunatile Normalisation", xaxt = "n") 
+plotRLE(set_tmm, outline=FALSE, ylim=c(-3, 3), col=colors[x], xlab="Trimmed mean of M values (TMM)", xaxt = "n")
+plotRLE(set_vsd, outline=FALSE, ylim=c(-1, 1), col=colors[x], xlab="Variance Stabilising Transformation", xaxt = "n")
+plotPCA(tmm_mito, col=rep(1:3, times = c(9, 12, 12)), labels=FALSE)
+dev.off()
 
 ```
 Based on the RLE plots grouped by condition, the best performing normalisation method for this dataset is Upper quantile, followed by TMM, then VST.
 
 
 # Density plot for gene counts of mitochondria vs muscle miRNAs
-```{r}
+```{r fig.width=8, fig.height=4}
 # muscle
 select2 <- as.matrix(assay(muscle.vsd))
 
@@ -256,6 +288,10 @@ POST.combined <- df.mito %>%
             Sample = p(as.character(Sample)))
 
 # plot
+pdf(file = "figures/miRNAs_densityPlots.pdf",   
+    width = 8, # The width of the plot in inches
+    height = 4) # The height of the plot in inches
+
 theme_set(theme_classic(base_size = 12))
 ggplot(data=PRE.combined, aes(x=rmeansPRE, group=Sample, fill=Sample)) +
     geom_density(adjust=1.5, alpha=.75) + 
@@ -281,8 +317,34 @@ ggplot(data=POST3h.combined, aes(x=rmeansPOST_3h, group=Sample, fill=Sample)) +
      theme(plot.title=element_text(hjust=0.5),
           plot.subtitle=element_text(hjust=0.5))
 
+dev.off()
 ```
 
+# Dataset preparation for differential expression analysis
+Use TMM normalisation and DESeq pipeline.
+Objects from the data loading chunk (Chunk 2) will be re-used.
+The original, non-filtered muscle counts data and coldata will be saved in the final rds object. 
+
+```{r}
+# filter out the outlier sample but not the low counts; this will be done later after creating the DESeq object
+
+# mito
+mito.cts_f <- mito.cts %>%
+  select(-c("hmtb.12.1_S29_L001.td", "hmta.12.2.2_S30_L001.tdf", "hmtb.12.3_S31_L001.tdf", "hmtb.11.2_S27_L001.tdf", "hmtb.11.3_S28_L001.tdf"))
+mito.cts_f <- as.matrix(mito.cts_f)
+
+# use the non-filtered mito coldata - mito.coldata.nf - as input
+mito.coldata_f <- mito.coldata.nf[mito.coldata.nf$sampleid %in% colnames(mito.cts_f),]
+all(mito.coldata$sampleid == colnames(mito.cts_f)) #check these both come back as TRUE
+
+# save the datasets for DE analysis
+miRNAdatasets_forDE = list(mito.coldata_f = mito.coldata_f, 
+                mito.cts_f=mito.cts_f, 
+                muscle.coldata=muscle.coldata, 
+                muscle.cts=muscle.cts)
+saveRDS(miRNAdatasets_forDE, "rds/miRNAdatasets_forDE.RDS")
+rm(miRNAdatasets_forDE)
+```
 
 Rerferences:
 Gandolfo, L.C. and Speed, T.P. (2018) ‘RLE plots: Visualizing unwanted variation in high dimensional data’, PLoS ONE, 13(2), p. e0191629. Available at: https://doi.org/10.1371/journal.pone.0191629.

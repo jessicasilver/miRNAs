@@ -82,7 +82,7 @@ dds <- DESeqDataSetFromMatrix(countData = cts,
 
 dds$condition <- relevel(dds$condition, ref = "PRE") #set your baseline. For rno-gastroc, this will be `ref = "SEDENTARY"`
 
-keep <- rowSums(counts(dds)) >= 10 #thesolding. first num = read counts, second num = x samples
+keep <- rowSums(counts(dds)) >= 10
 dds <- dds[keep,]
 
 dds <- DESeq(dds) #run deseq2
@@ -93,10 +93,6 @@ res <- results(dds, contrast=c("condition","3HPOST","PRE"))
 resOrdered <- res[order(res$pvalue),]
 summary(resOrdered)
 head(resOrdered)
-
-#write.csv(as.data.frame(resOrdered), file="yyyy-mm-dd_sampletype_time2,time1_notes.csv")
-
-#metadata(dds)[["version"]]
 
 ```
 
@@ -121,6 +117,7 @@ condition_3HPOST_vs_POST <- list("condition_3HPOST_vs_POST" = hr3POST_vs_POST)
 
 # store all contrasts in a list 
 ddsResults_list <- append(ddsResults, condition_3HPOST_vs_POST)
+ddsResults_list <- diff_expressed(ddsResults_list, padjust = 0.05, L2FC = 1)
 names(ddsResults_list)
 
 saveRDS(ddsResults_list, "rds/ddsResults_wholeMusc.rds")
@@ -134,7 +131,7 @@ saveRDS(ddsSignif_contrasts, "rds/ddsSignif_wholeMusc.rds")
 ## Visualisations
 
 Prepare data and add gene names
-```{r}
+```{r }
 # add gene names from ENSEMBL Ids
 data_genename <- read.csv("data/2022-11-11_human skm_total RNA_RAW_ENSEMBL-geneID.csv", sep=",", row.names = 1)
 data_genename <- data_genename[,1:2] 
@@ -148,16 +145,25 @@ signif_genes <- signif_genes %>% dplyr::select(-c(ENSEMBL))
 ```
 
 Apply variance stabilising transformation to the DESeq data
-```{r}
+```{r fig.width=10, fig.height=6}
 # apply variance stabilising transformation to the DESeq data
 # this normalisation is required for calculations involving distances (heatmaps, clustering, etc.)
 vsd <- vst(dds, blind=F)
 
 #plotPCA(vsd, intgroup=c("condition"))
-pca <- plot_pca(vsd, PC_x = 1, PC_y = 2, color_by = "condition", point_rel_size = 2.5) 
+pca <- plot_pca(vsd, PC_x = 1, PC_y = 2, color_by = "condition", point_rel_size = 4) 
 p <- pca(assay(vsd))
 
-screeplot(p, axisLabSize = 18, titleLabSize = 22) 
+s <- screeplot(p, axisLabSize = 18, titleLabSize = 22) 
+s
+
+pdf(file = "figures/wholeMusc_mRNA_pca.pdf",
+    width = 10, # The width of the plot in inches
+    height = 6) # The height of the plot in inches
+pca
+s
+dev.off()
+
 ```
 
 ### Heatmap
@@ -223,29 +229,62 @@ hA
 hB <- h1_noGrouping+h2+h3
 hB
 
-
+pdf(file = "figures/wholeMusc_mRNA_hmap.pdf",   
+    width = 14.22, # The width of the plot in inches
+    height = 15) # The height of the plot in inches
+hA
+hB
+dev.off()
 ```
 ### Volcano plots
 ```{r fig.width=14.22, fig.height=15}
 plots <- list()
 for (i in 1:length(ddsResults_list)) {
-  
-  if (i <= 3) {
+   
+  upGenes <- table(ddsResults_list[[i]]$diffexpressed)["UP"]
+  downGenes <- table(ddsResults_list[[i]]$diffexpressed)["DOWN"]
+  name1 <- gsub("_", " ", names(ddsResults_list[i]))
+  name <- gsub("condition", "", name1)
+    
     p <- EnhancedVolcano(ddsResults_list[[i]], x="log2FoldChange", y="padj", lab = NA, 
-                pCutoff = 1e-4, FCcutoff = 1, title = "", subtitle = names(ddsResults_list[i]), gridlines.major = FALSE, gridlines.minor = FALSE, 
-                axisLabSize = 14, titleLabSize = 0, subtitleLabSize = 16, captionLabSize = 14, legendLabSize = 14, legendIconSize = 4,
-                col = c("grey30", "royalblue", "forestgreen", "red2"))
-  } else {
-    p <- EnhancedVolcano(ddsResults_list[[i]], x="log2FoldChange", y="padj", lab = NA, 
-                pCutoff = 1e-4, FCcutoff = 1, title = "", subtitle = names(ddsResults_list[i]), gridlines.major = FALSE, gridlines.minor = FALSE, 
-                axisLabSize = 14, titleLabSize = 0, subtitleLabSize = 16, captionLabSize = 14, legendPosition = "none",
-                col = c("grey30", "royalblue", "forestgreen", "red2"))
-  }
-  
+                pCutoff = 0.05, FCcutoff = 1, title = name, pointSize = 4,
+                subtitle = paste0("Up-regulated = ", upGenes, " and Down-regulated = ", downGenes), 
+                gridlines.major = FALSE, gridlines.minor = FALSE, axisLabSize = 20, titleLabSize = 20, subtitleLabSize = 18,
+                captionLabSize = 0, legendLabSize = 15, legendIconSize = 8, col = c("grey30", "royalblue", "forestgreen", "red2"))
   
   plots[[i]] <- p
 }
 plot_grid(plotlist = plots, ncol = 2, labels = LETTERS[1:length(plots)], label_size = 18)
+
+pdf(file = "figures/wholeMusc_mRNA_volcanoPlots.pdf",   
+    width = 10, # The width of the plot in inches
+    height = 10) # The height of the plot in inches
+plots[1:3]
+dev.off()
+```
+
+### Summary of up-regulated and down-regulated genes
+```{r }
+diffexpr_summary <- list()
+
+for (i in 1:length(ddsResults_list)) {
+  
+  upGenes <- table(ddsResults_list[[i]]$diffexpressed)["UP"]
+  downGenes <- table(ddsResults_list[[i]]$diffexpressed)["DOWN"]
+  name <- gsub("_", " ", names(ddsResults_list[i]))
+  name2 <- gsub("condition", "", name)
+  
+  diffexpr_summary[[paste0(i)]]$Stage <- name2
+  diffexpr_summary[[paste0(i)]]$Up <- upGenes
+  diffexpr_summary[[paste0(i)]]$Down <- downGenes
+}
+
+diffexpr_summaryDF <- do.call(rbind.data.frame, diffexpr_summary) %>%
+  as.data.frame(.)
+write.csv(diffexpr_summaryDF, "outData/wholeMusc_mRNA_DEsummary.csv")
+write.csv(ddsResults_list$condition_3HPOST_vs_PRE, "outData/wholeMusc_mRNA_DE_3HPOSTvPRE.csv")
+write.csv(ddsResults_list$condition_POST_vs_PRE, "outData/wholeMusc_mRNA_DE_POSTvPRE.csv")
+write.csv(ddsResults_list$condition_3HPOST_vs_POST, "outData/wholeMusc_mRNA_DE_3HPOSTvPOST.csv")
 ```
 
 Session Info

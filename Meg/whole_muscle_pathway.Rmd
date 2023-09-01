@@ -105,7 +105,7 @@ cat("Before adding background genes: ", x, "\n",
 
 # Gene Set Enrichment analysis 
 ## Pre vs 3hr post 
-```{r fig.height=9, fig.width=12, warning=FALSE}
+```{r fig.height=10, fig.width=12, warning=FALSE}
 preV3h_gseGO <- clusterProfiler::GSEA(geneList = preV3h_input$gene_list, 
                      TERM2GENE = GO_BP,
                      pvalueCutoff = 0.05,
@@ -116,30 +116,46 @@ preV3h_gseGO <- clusterProfiler::GSEA(geneList = preV3h_input$gene_list,
                      verbose = FALSE)
 
 # plot results
-
-dotplot(preV3h_gseGO, showCategory=10, split=".sign",
-        label_format = 40,
-        font.size = 10,) +
+d1 <- dotplot(preV3h_gseGO, showCategory=10, split=".sign", 
+        label_format = 35,
+        font.size = 5,) +
         facet_grid(.~.sign) + 
         labs(title = "Gene Set Enrichment Analysis of DE Genes (3hr post vs Pre exercise)",
              subtitle = "FDR < 0.05, -1 > logfold2Change > 1 ") +
+        theme_bw(base_size = 18) +
         theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
-              plot.subtitle=element_text(hjust=0.5, size = 15, face = "bold")) 
+              plot.subtitle=element_text(vjust=2, hjust=0.5, size = 18,face = "bold"),
+              axis.text.y = element_text(size = 11)) 
+  
 
-emapplot(pairwise_termsim(preV3h_gseGO), showCategory = 15, layout = "circle") +
+e1 <- emapplot(pairwise_termsim(preV3h_gseGO), showCategory = 15, layout = "circle") +
   ggtitle("Enrichment map plot of DE Genes (3hr post vs Pre exercise)") +
-  theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"))
+  theme_void(base_size = 18) +
+  theme(plot.title=element_text(vjust=3, hjust=0.5, size = 20, face = "bold"))
 
 
-ridgeplot(preV3h_gseGO, showCategory = 15) + 
+r1 <- ridgeplot(preV3h_gseGO, showCategory = 15) + 
   labs(title = "Density plots of fold change frequency values per gene within each set",
        subtitle = "(3hr post vs Pre exercise)",
     x = "Enrichment Distribution") +
+  theme_classic(base_size = 18) +
   theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
               plot.subtitle=element_text(hjust=0.5, size = 20, face = "bold"))
+
+d1
+e1
+r1
+
+pdf(file = "figures/wholeMusc_mRNA_preV3h_gseGO.pdf",   
+    width = 12, # The width of the plot in inches
+    height = 10) # The height of the plot in inches
+d1
+e1
+r1
+dev.off()
 ```
 ## Pre vs Post 
-```{r fig.height=9, fig.width=12, warning=FALSE}
+```{r fig.height=10, fig.width=12, warning=FALSE}
 preVpost_gseGO <- clusterProfiler::GSEA(geneList = preVpost_input$gene_list, 
                      TERM2GENE = GO_BP,
                      pvalueCutoff = 0.05,
@@ -150,26 +166,43 @@ preVpost_gseGO <- clusterProfiler::GSEA(geneList = preVpost_input$gene_list,
                      verbose = FALSE)
 
 # plot results
-dotplot(preVpost_gseGO, showCategory=10, split=".sign",
-        label_format = 40,
-        font.size = 10,) +
+d2 <- dotplot(preVpost_gseGO, showCategory=10, split=".sign", 
+        label_format = 30,
+        font.size = 5,) +
         facet_grid(.~.sign) + 
         labs(title = "Gene Set Enrichment Analysis of DE Genes (Post vs Pre exercise)",
              subtitle = "FDR < 0.05, -1 > logfold2Change > 1 ") +
+        theme_bw(base_size = 18) +
         theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
-              plot.subtitle=element_text(hjust=0.5, size = 15, face = "bold")) 
+              plot.subtitle=element_text(vjust=2, hjust=0.5, size = 18,face = "bold"),
+              axis.text.y = element_text(size = 12)) 
+  
 
-emapplot(pairwise_termsim(preVpost_gseGO), showCategory = 15, layout = "circle") +
+e2 <- emapplot(pairwise_termsim(preVpost_gseGO), showCategory = 15, layout = "circle") +
   ggtitle("Enrichment map plot of DE Genes (Post vs Pre exercise)") +
-  theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"))
+  theme_void(base_size = 18) +
+  theme(plot.title=element_text(vjust=3, hjust=0.5, size = 20, face = "bold"))
 
 
-ridgeplot(preVpost_gseGO, showCategory = 15) + 
+r2 <- ridgeplot(preVpost_gseGO, showCategory = 15) + 
   labs(title = "Density plots of fold change frequency values per gene within each set",
        subtitle = "(Post vs Pre exercise)",
     x = "Enrichment Distribution") +
+  theme_classic(base_size = 18) +
   theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"),
               plot.subtitle=element_text(hjust=0.5, size = 20, face = "bold"))
+
+d2
+e2
+r2
+
+pdf(file = "figures/wholeMusc_mRNA_preVpost_gseGO.pdf",   
+    width = 12, # The width of the plot in inches
+    height = 10) # The height of the plot in inches
+d2
+e2
+r2
+dev.off()
 
 ```
 
@@ -208,5 +241,8 @@ cnetplot(ck, node_label="category", cex_label_category = 2) +
   theme(plot.title=element_text(hjust=0.5, size = 20, face = "bold"))
 ```
 
-
+Session Info
+```{r session info} 
+sessionInfo()
+```
 

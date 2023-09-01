@@ -36,6 +36,29 @@ threshFilter <- function(dfList, padjust, L2FC){
   return(filt)
 }
 
+# adds a column to a DESeq2 table and tags genes as UP and DOWN regulated 
+# according to baseMean and log2FC thresholds
+# dfList = list; a list of DESEq2 results converted into a dataframe 
+# pvalue, L2FC = integer; numerical thresholds for pvalue and log2FoldChange, respectively
+diff_expressed <- function(dfList, padjust, L2FC){
+  
+  results <- list()
+  
+  for (i in 1:length(dfList)) {
+    # categorise to upregulated and downregulated genes
+    y <- dfList[[i]] %>% 
+      mutate(diffexpressed = case_when(
+        log2FoldChange > L2FC & padj < padjust ~ 'UP',
+        log2FoldChange < L2FC & padj < padjust ~ 'DOWN',
+        padj > padjust ~ 'NO')) 
+    
+    results[[paste0(names(dfList[i]))]] <- y
+  }
+  
+  return(results)
+}
+
+
 # creates a clusterProfiler-ready input for ORA or GSEA from DESeq
 # NOTE: this assumes that the dataframe has a column named ENSEMBL containing
 #       ensembl ids
