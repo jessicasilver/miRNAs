@@ -8,7 +8,7 @@ resNames_list <- function(dds){
   for (i in 1:length(resName)) {
     
     signif_genes <- as.data.frame(results(dds, name = resName[[i]]))
-    signif_genes <- signif_genes[order(signif_genes$padj, decreasing = FALSE),] %>%
+    signif_genes <- signif_genes[order(signif_genes$pvalue, decreasing = FALSE),] %>%
       as.data.frame(.)
     
     resNames_list[[paste0((resName)[[i]])]] <- signif_genes
@@ -49,8 +49,9 @@ diff_expressed <- function(dfList, padjust, L2FC){
     y <- dfList[[i]] %>% 
       mutate(diffexpressed = case_when(
         log2FoldChange > L2FC & padj < padjust ~ 'UP',
-        log2FoldChange < L2FC & padj < padjust ~ 'DOWN',
-        padj > padjust ~ 'NO')) 
+        log2FoldChange < (L2FC*-1) & padj < padjust ~ 'DOWN',
+        padj > padjust ~ 'NO',
+        .default = 'NO')) # none of the cases match 
     
     results[[paste0(names(dfList[i]))]] <- y
   }
@@ -279,12 +280,15 @@ hmap_colGrouped <- function(numkeep, signif_genes_filt, count_mat_z,
   
   # plot heatmaps
   
-  h1 <- Heatmap(count_mat_z[rowskeep,], column_title = hmap_name,
+  h1 <- Heatmap(count_mat_z[rowskeep,], 
                 column_title_gp = gpar(fontsize = 23),
                 cluster_rows = F, # cluster only columns to compare samples
                 column_labels = colnames(count_mat_z), name="Z-score",
-                cluster_columns = dend1, column_split = 6,
-                top_annotation = HeatmapAnnotation(Sampling = sampling_group, col = list(Sampling = sampling_group_col)))
+                cluster_columns = dend1, column_split = 3,
+                column_names_rot = 45,
+                top_annotation = HeatmapAnnotation(Sampling = sampling_group, 
+                                                   show_annotation_name = T,
+                                                  col = list(Sampling = sampling_group_col)))
   
   h2 <- Heatmap(l2_val, row_labels = rownames(signif_genes_filt)[rowskeep], 
                 cluster_rows = F, name="logFC", col = col_logFC,
@@ -295,4 +299,16 @@ hmap_colGrouped <- function(numkeep, signif_genes_filt, count_mat_z,
   h<-h1+h2
   
   return(h)
+}
+
+# saves a pheatmap file
+# from https://stackoverflow.com/questions/43051525/how-to-draw-pheatmap-plot-to-screen-and-also-save-to-file
+# where x is the pheatmap object
+save_pheatmap_pdf <- function(x, filename, width=7, height=7) {
+  stopifnot(!missing(x))
+  stopifnot(!missing(filename))
+  pdf(filename, width=width, height=height)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
 }
